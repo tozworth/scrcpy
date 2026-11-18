@@ -119,6 +119,7 @@ enum {
     OPT_PAUSE_VIDEO_WHEN_MINIMIZED,
     OPT_FREEZE_APP_WHEN_MINIMIZED,
     OPT_SECURE_DISPLAY,
+    OPT_PAUSE_PLAYBACK_ON_CLOSE,
 };
 
 struct sc_option {
@@ -155,6 +156,14 @@ struct sc_getopt_adapter {
 };
 
 static const struct sc_option options[] = {
+    {
+        .longopt_id = OPT_PAUSE_PLAYBACK_ON_CLOSE,
+        .longopt = "pause-playback-on-close",
+        .text = "Pause media sessions belonging to the started app before "
+                "releasing audio capture on close. Requires --start-app, "
+                "--new-display and control. Apps must support Android media "
+                "controls. No other app's playback is paused. (appcpy)",
+    },
     {
         .longopt_id = OPT_SECURE_DISPLAY,
         .longopt = "secure-display",
@@ -3073,6 +3082,9 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                 opts->pause_video_when_minimized = true;
                 opts->freeze_app_when_minimized = true;
                 break;
+            case OPT_PAUSE_PLAYBACK_ON_CLOSE:
+                opts->pause_playback_on_close = true;
+                break;
             case OPT_SECURE_DISPLAY:
                 opts->secure_display = true;
                 break;
@@ -3447,6 +3459,14 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                  "--pause-video-when-minimized");
             return false;
         }
+    }
+
+    if (opts->pause_playback_on_close
+            && (!opts->start_app || !opts->new_display || !opts->control
+                || opts->video_source != SC_VIDEO_SOURCE_DISPLAY)) {
+        LOGE("--pause-playback-on-close requires --start-app, "
+             "--new-display and control");
+        return false;
     }
 
     if (opts->secure_display) {

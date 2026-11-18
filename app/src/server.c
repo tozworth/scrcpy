@@ -429,6 +429,9 @@ execute_server(struct sc_server *server,
     if (params->flex_display) {
         ADD_PARAM("flex_display=true");
     }
+    if (params->pause_playback_on_close) {
+        ADD_PARAM("pause_playback_on_close=true");
+    }
     if (params->secure_display) {
         ADD_PARAM("secure_display=true");
     }

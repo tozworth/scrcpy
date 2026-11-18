@@ -484,6 +484,7 @@ scrcpy(struct scrcpy_options *options) {
         .vd_system_decorations = options->vd_system_decorations,
         .keep_active = options->keep_active,
         .flex_display = options->flex_display,
+        .pause_playback_on_close = options->pause_playback_on_close,
         .secure_display = options->secure_display,
         .ignore_video_encoder_constraints =
             options->ignore_video_encoder_constraints,

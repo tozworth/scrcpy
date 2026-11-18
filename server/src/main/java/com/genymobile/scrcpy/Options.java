@@ -67,6 +67,7 @@ public class Options {
     private NewDisplay newDisplay;
     private boolean vdDestroyContent = true;
     private boolean vdSystemDecorations = true;
+    private boolean pausePlaybackOnClose;
     private boolean secureDisplay;
     private boolean flexDisplay;
 
@@ -266,6 +267,10 @@ public class Options {
 
     public boolean getVDSystemDecorations() {
         return vdSystemDecorations;
+    }
+
+    public boolean getPausePlaybackOnClose() {
+        return pausePlaybackOnClose;
     }
 
     public boolean getSecureDisplay() {
@@ -534,6 +539,9 @@ public class Options {
                     break;
                 case "vd_system_decorations":
                     options.vdSystemDecorations = Boolean.parseBoolean(value);
+                    break;
+                case "pause_playback_on_close":
+                    options.pausePlaybackOnClose = Boolean.parseBoolean(value);
                     break;
                 case "secure_display":
                     options.secureDisplay = Boolean.parseBoolean(value);

@@ -91,6 +91,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
     private final boolean supportsInputEvents;
     private final ControlChannel controlChannel;
     private final CleanUp cleanUp;
+    private final PlaybackPause playbackPause;
     private final DeviceMessageSender sender;
     private final boolean clipboardAutosync;
     private final boolean powerOn;
@@ -113,10 +114,11 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
     // Used for resetting video encoding on RESET_VIDEO message or for sending camera controls
     private SurfaceCapture surfaceCapture;
 
-    public Controller(ControlChannel controlChannel, CleanUp cleanUp, Options options) {
+    public Controller(ControlChannel controlChannel, CleanUp cleanUp, Options options, PlaybackPause playbackPause) {
         this.camera = options.getVideoSource() == VideoSource.CAMERA;
         this.controlChannel = controlChannel;
         this.cleanUp = cleanUp;
+        this.playbackPause = playbackPause;
 
         if (this.camera) {
             // Unused for camera
@@ -816,6 +818,10 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
 
         Ln.i("Starting app \"" + app.getName() + "\" [" + app.getPackageName() + "] on display " + startAppDisplayId + "...");
         Device.startApp(app.getPackageName(), startAppDisplayId, forceStopBeforeStart);
+        // Resolve --start-app (including name searches) before recording the exact package.
+        if (playbackPause != null) {
+            playbackPause.setPackageName(app.getPackageName());
+        }
     }
 
     private int getStartAppDisplayId() {

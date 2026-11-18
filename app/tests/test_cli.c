@@ -243,6 +243,35 @@ static void test_keymap_option(void) {
     assert(!strcmp(args.opts.keymap, "C:/data/com.example.game.keymap"));
 }
 
+static void test_pause_playback_on_close(void) {
+    struct scrcpy_cli_args args = {.opts = scrcpy_options_default};
+    assert(!args.opts.pause_playback_on_close);
+    char *valid[] = {"scrcpy", "--new-display", "--start-app=com.example.app",
+                     "--pause-playback-on-close"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(valid), valid));
+    assert(args.opts.pause_playback_on_close);
+
+    args.opts = scrcpy_options_default;
+    char *no_audio[] = {"scrcpy", "--new-display", "--start-app=com.example.app",
+                        "--no-audio", "--pause-playback-on-close"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(no_audio), no_audio));
+    assert(args.opts.pause_playback_on_close);
+
+    args.opts = scrcpy_options_default;
+    char *no_app[] = {"scrcpy", "--new-display", "--pause-playback-on-close"};
+    assert(!scrcpy_parse_args(&args, ARRAY_LEN(no_app), no_app));
+
+    args.opts = scrcpy_options_default;
+    char *no_display[] = {"scrcpy", "--start-app=com.example.app",
+                          "--pause-playback-on-close"};
+    assert(!scrcpy_parse_args(&args, ARRAY_LEN(no_display), no_display));
+
+    args.opts = scrcpy_options_default;
+    char *no_control[] = {"scrcpy", "--new-display", "--start-app=com.example.app",
+                          "--no-control", "--pause-playback-on-close"};
+    assert(!scrcpy_parse_args(&args, ARRAY_LEN(no_control), no_control));
+}
+
 int main(int argc, char *argv[]) {
     (void) argc;
     (void) argv;
@@ -256,5 +285,6 @@ int main(int argc, char *argv[]) {
     test_keymap_option();
     test_pause_video_when_minimized();
     test_secure_display_option();
+    test_pause_playback_on_close();
     return 0;
 }

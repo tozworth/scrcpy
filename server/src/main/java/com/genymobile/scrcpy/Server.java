@@ -7,6 +7,8 @@ import com.genymobile.scrcpy.audio.AudioEncoder;
 import com.genymobile.scrcpy.audio.AudioPlaybackCapture;
 import com.genymobile.scrcpy.audio.AudioRawRecorder;
 import com.genymobile.scrcpy.audio.AudioSource;
+import com.genymobile.scrcpy.audio.PauseOnCloseCapture;
+import com.genymobile.scrcpy.control.PlaybackPause;
 import com.genymobile.scrcpy.control.ControlChannel;
 import com.genymobile.scrcpy.control.Controller;
 import com.genymobile.scrcpy.device.DesktopConnection;
@@ -102,6 +104,7 @@ public final class Server {
         Workarounds.apply();
 
         List<AsyncProcessor> asyncProcessors = new ArrayList<>();
+        PlaybackPause playbackPause = options.getPausePlaybackOnClose() ? new PlaybackPause() : null;
 
         DesktopConnection connection = DesktopConnection.open(scid, tunnelForward, video, audio, control, sendDummyByte);
         try {
@@ -113,7 +116,7 @@ public final class Server {
 
             if (control) {
                 ControlChannel controlChannel = connection.getControlChannel();
-                controller = new Controller(controlChannel, cleanUp, options);
+                controller = new Controller(controlChannel, cleanUp, options, playbackPause);
                 asyncProcessors.add(controller);
             }
 
@@ -125,6 +128,12 @@ public final class Server {
                     audioCapture = new AudioDirectCapture(audioSource);
                 } else {
                     audioCapture = new AudioPlaybackCapture(options.getAudioDup());
+                }
+
+                // The recorder can finish before the server's finally block (broken pipe).
+                // Pause while REMOTE_SUBMIX still silences the physical speakers.
+                if (playbackPause != null) {
+                    audioCapture = new PauseOnCloseCapture(audioCapture, playbackPause);
                 }
 
                 Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendStreamMeta(), options.getSendFrameMeta());
@@ -169,6 +178,10 @@ public final class Server {
 
             Looper.loop(); // interrupted by the Completion implementation
         } finally {
+            // Also applies when forwarding is disabled (--no-audio) or unavailable.
+            if (playbackPause != null) {
+                playbackPause.pause();
+            }
             if (cleanUp != null) {
                 cleanUp.interrupt();
             }
