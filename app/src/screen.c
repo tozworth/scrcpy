@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays, key mapping and pausing video while minimized. */
+/* Modified by appcpy: percentage scaling for flex displays, key mapping, pausing video while minimized and secure displays. */
 #include "screen.h"
 
 #include <assert.h>

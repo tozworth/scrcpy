@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays, key mapping and pausing video while minimized. */
+/* Modified by appcpy: percentage scaling for flex displays, key mapping, pausing video while minimized and secure displays. */
 #include "scrcpy.h"
 
 #include <assert.h>
@@ -484,6 +484,7 @@ scrcpy(struct scrcpy_options *options) {
         .vd_system_decorations = options->vd_system_decorations,
         .keep_active = options->keep_active,
         .flex_display = options->flex_display,
+        .secure_display = options->secure_display,
         .ignore_video_encoder_constraints =
             options->ignore_video_encoder_constraints,
         .list = options->list,

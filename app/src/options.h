@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays, key mapping and pausing video while minimized. */
+/* Modified by appcpy: percentage scaling for flex displays, key mapping, pausing video while minimized and secure displays. */
 #ifndef SCRCPY_OPTIONS_H
 #define SCRCPY_OPTIONS_H
 
@@ -377,6 +377,7 @@ struct scrcpy_options {
     const char *keymap; // appcpy: keyboard-to-touch mapping file
     bool pause_video_when_minimized; // appcpy
     bool freeze_app_when_minimized; // appcpy: implies pause_video_when_minimized
+    bool secure_display; // appcpy: secure display for FLAG_SECURE apps (requires root)
     bool ignore_video_encoder_constraints;
     bool update_terminal_title;
 };

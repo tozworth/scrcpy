@@ -210,6 +210,11 @@ execute_server(struct sc_server *server,
                const struct sc_server_params *params) {
     sc_pid pid = SC_PROCESS_NONE;
 
+    // appcpy: secure-display su wrapping (declared early so ADD_PARAM
+    // failures jumping to end never skip its initialization).
+    char *secure_joined = NULL;
+    unsigned secure_dyn = 0;
+
     const char *serial = server->serial;
     assert(serial);
 
@@ -424,6 +429,9 @@ execute_server(struct sc_server *server,
     if (params->flex_display) {
         ADD_PARAM("flex_display=true");
     }
+    if (params->secure_display) {
+        ADD_PARAM("secure_display=true");
+    }
     if (params->ignore_video_encoder_constraints) {
         ADD_PARAM("ignore_video_encoder_constraints=true");
     }
@@ -458,6 +466,41 @@ execute_server(struct sc_server *server,
 
 #undef ADD_PARAM
 
+    // appcpy: a secure display needs CAPTURE_SECURE_VIDEO_OUTPUT (or root).
+    // Run the server through su so its uid is 0 (root), which the display
+    // service explicitly exempts. Every server param is validated above (no
+    // spaces, quotes or shell metacharacters), so joining them with spaces
+    // into a single su -c argument is safe.
+    if (params->secure_display) {
+        size_t len = 3; // surrounding quotes plus NUL
+        for (unsigned i = 4; i < count; ++i) {
+            len += strlen(cmd[i]) + 1;
+        }
+        secure_joined = malloc(len);
+        if (!secure_joined) {
+            LOG_OOM();
+            goto end;
+        }
+        secure_joined[0] = '"';
+        secure_joined[1] = '\0';
+        for (unsigned i = 4; i < count; ++i) {
+            if (i != 4) {
+                strcat(secure_joined, " ");
+            }
+            strcat(secure_joined, cmd[i]);
+        }
+        strcat(secure_joined, "\"");
+        for (unsigned i = dyn_idx; i < count; ++i) {
+            free((char *) cmd[i]);
+        }
+        cmd[4] = "su";
+        cmd[5] = "-c";
+        cmd[6] = secure_joined;
+        cmd[7] = NULL;
+        secure_dyn = 6;
+        count = 7;
+    }
+
     cmd[count++] = NULL;
 
 #ifdef SERVER_DEBUGGER
@@ -479,7 +522,12 @@ execute_server(struct sc_server *server,
     pid = sc_adb_execute(cmd, 0);
 
 end:
-    for (unsigned i = dyn_idx; i < count; ++i) {
+    if (secure_joined) {
+        free(secure_joined);
+    }
+    // dyn_idx entries before the su rewrite were freed above; only free the
+    // tail that is still referenced (or everything when not secure).
+    for (unsigned i = secure_joined ? secure_dyn + 1 : dyn_idx; i < count; ++i) {
         free((char *) cmd[i]);
     }
 

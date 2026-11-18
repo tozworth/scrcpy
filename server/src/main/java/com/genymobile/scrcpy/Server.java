@@ -35,6 +35,7 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
+// Modified by appcpy: keep root for secure displays.
 public final class Server {
 
     public static final String SERVER_PATH;
@@ -233,7 +234,20 @@ public final class Server {
             }
         });
 
-        dropRootPrivileges();
+        // appcpy: creating a secure display needs CAPTURE_SECURE_VIDEO_OUTPUT
+        // (or root). The server runs as shell (uid 2000) after an explicit
+        // setuid; keep uid 0 so SurfaceFlinger accepts the secure display.
+        // Clipboard sync may misbehave as root (upstream #6224).
+        boolean secureDisplay = false;
+        for (String arg : args) {
+            if ("secure_display=true".equals(arg)) {
+                secureDisplay = true;
+                break;
+            }
+        }
+        if (!secureDisplay) {
+            dropRootPrivileges();
+        }
 
         prepareMainLooper();
 

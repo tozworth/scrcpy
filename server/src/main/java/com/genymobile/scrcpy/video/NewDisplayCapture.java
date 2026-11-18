@@ -36,6 +36,7 @@ public class NewDisplayCapture extends SurfaceCapture {
     // Internal fields copied from android.hardware.display.DisplayManager
     private static final int VIRTUAL_DISPLAY_FLAG_PUBLIC = android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC;
     private static final int VIRTUAL_DISPLAY_FLAG_PRESENTATION = android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION;
+    private static final int VIRTUAL_DISPLAY_FLAG_SECURE = 1 << 2;
     private static final int VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY = android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY;
     private static final int VIRTUAL_DISPLAY_FLAG_SUPPORTS_TOUCH = 1 << 6;
     private static final int VIRTUAL_DISPLAY_FLAG_ROTATES_WITH_CONTENT = 1 << 7;
@@ -66,6 +67,7 @@ public class NewDisplayCapture extends SurfaceCapture {
     private final float angle;
     private final boolean vdDestroyContent;
     private final boolean vdSystemDecorations;
+    private final boolean secureDisplay;
     private final boolean flexDisplay;
 
     private VideoConstraints videoConstraints;
@@ -97,6 +99,7 @@ public class NewDisplayCapture extends SurfaceCapture {
         this.angle = options.getAngle();
         this.vdDestroyContent = options.getVDDestroyContent();
         this.vdSystemDecorations = options.getVDSystemDecorations();
+        this.secureDisplay = options.getSecureDisplay();
         this.flexDisplay = options.getFlexDisplay();
     }
 
@@ -225,6 +228,9 @@ public class NewDisplayCapture extends SurfaceCapture {
                     | VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY
                     | VIRTUAL_DISPLAY_FLAG_SUPPORTS_TOUCH
                     | VIRTUAL_DISPLAY_FLAG_ROTATES_WITH_CONTENT;
+            if (secureDisplay) {
+                flags |= VIRTUAL_DISPLAY_FLAG_SECURE;
+            }
             if (vdDestroyContent) {
                 flags |= VIRTUAL_DISPLAY_FLAG_DESTROY_CONTENT_ON_REMOVAL;
             }

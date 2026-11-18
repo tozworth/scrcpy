@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays, key mapping and pausing video while minimized. */
+/* Modified by appcpy: percentage scaling for flex displays, key mapping, pausing video while minimized and secure displays. */
 #include "cli.h"
 
 #include <assert.h>
@@ -118,6 +118,7 @@ enum {
     OPT_KEYMAP,
     OPT_PAUSE_VIDEO_WHEN_MINIMIZED,
     OPT_FREEZE_APP_WHEN_MINIMIZED,
+    OPT_SECURE_DISPLAY,
 };
 
 struct sc_option {
@@ -154,6 +155,16 @@ struct sc_getopt_adapter {
 };
 
 static const struct sc_option options[] = {
+    {
+        .longopt_id = OPT_SECURE_DISPLAY,
+        .longopt = "secure-display",
+        .text = "Create the new display as a secure display, so apps that "
+                "set FLAG_SECURE (for example banking apps) render instead "
+                "of showing black. The server runs as root (su), so this "
+                "requires a rooted device. This is not a DRM bypass: "
+                "Widevine and other protected video still stays black. "
+                "Requires --new-display. (appcpy)",
+    },
     {
         .longopt_id = OPT_PAUSE_VIDEO_WHEN_MINIMIZED,
         .longopt = "pause-video-when-minimized",
@@ -3062,6 +3073,9 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                 opts->pause_video_when_minimized = true;
                 opts->freeze_app_when_minimized = true;
                 break;
+            case OPT_SECURE_DISPLAY:
+                opts->secure_display = true;
+                break;
             case OPT_FLEX_DISPLAY_SCALE: {
                 long scale;
                 if (!parse_integer_arg(optarg, &scale, false, 25, 100,
@@ -3431,6 +3445,14 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
         if (!opts->control) {
             LOGE("-n/--no-control is not compatible with "
                  "--pause-video-when-minimized");
+            return false;
+        }
+    }
+
+    if (opts->secure_display) {
+        if (opts->video_source != SC_VIDEO_SOURCE_DISPLAY
+                || !opts->new_display) {
+            LOGE("--secure-display requires --new-display");
             return false;
         }
     }

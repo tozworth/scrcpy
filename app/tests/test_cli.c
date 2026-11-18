@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays, key mapping and pausing video while minimized. */
+/* Modified by appcpy: percentage scaling for flex displays, key mapping, pausing video while minimized and secure displays. */
 #include "common.h"
 
 #include <assert.h>
@@ -188,6 +188,24 @@ static void test_flex_scale(void) {
     assert(!scrcpy_parse_args(&args, ARRAY_LEN(no_flex), no_flex));
 }
 
+static void test_secure_display_option(void) {
+    struct scrcpy_cli_args args = {.opts = scrcpy_options_default};
+    assert(!args.opts.secure_display);
+    char *valid[] = {"scrcpy", "--new-display", "--secure-display"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(valid), valid));
+    assert(args.opts.secure_display);
+
+    args.opts = scrcpy_options_default;
+    char *no_display[] = {"scrcpy", "--secure-display"};
+    assert(!scrcpy_parse_args(&args, ARRAY_LEN(no_display), no_display));
+
+    args.opts = scrcpy_options_default;
+    char *no_control[] = {"scrcpy", "--new-display", "-n",
+                          "--secure-display"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(no_control), no_control));
+    assert(args.opts.secure_display);
+}
+
 static void test_pause_video_when_minimized(void) {
     struct scrcpy_cli_args args = {.opts = scrcpy_options_default};
     assert(!args.opts.pause_video_when_minimized);
@@ -237,5 +255,6 @@ int main(int argc, char *argv[]) {
     test_flex_scale();
     test_keymap_option();
     test_pause_video_when_minimized();
+    test_secure_display_option();
     return 0;
 }
