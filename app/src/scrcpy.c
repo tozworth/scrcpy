@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
+/* Modified by appcpy: percentage scaling for flex displays, key mapping and pausing video while minimized. */
 #include "scrcpy.h"
 
 #include <assert.h>
@@ -823,6 +823,8 @@ aoa_complete:
             .flex_display_integer_scaling = options->flex_display_integer_scaling,
             .keymap = options->keymap,
             .keymap_dpi = sc_keymap_parse_display_dpi(options->new_display),
+            .pause_video_when_minimized = options->pause_video_when_minimized,
+            .freeze_app_when_minimized = options->freeze_app_when_minimized,
             .controller = controller,
             .fp = fp,
             .kp = kp,

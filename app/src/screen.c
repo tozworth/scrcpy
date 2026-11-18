@@ -1,10 +1,12 @@
-/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
+/* Modified by appcpy: percentage scaling for flex displays, key mapping and pausing video while minimized. */
 #include "screen.h"
 
 #include <assert.h>
 #include <string.h>
 #include <SDL3/SDL.h>
 
+#include "control_msg.h"
+#include "controller.h"
 #include "events.h"
 #include "icon.h"
 #include "options.h"
@@ -574,6 +576,10 @@ sc_screen_init(struct sc_screen *screen,
     screen->flex_display = params->flex_display;
     screen->flex_display_scale = params->flex_display_scale;
     screen->flex_display_integer_scaling = params->flex_display_integer_scaling;
+    screen->pause_video_when_minimized = params->pause_video_when_minimized;
+    screen->freeze_app_when_minimized = params->freeze_app_when_minimized;
+    assert(!screen->pause_video_when_minimized || params->controller);
+    screen->video_paused_by_minimize = false;
 
     screen->bg.r = (params->background_color >> 16) & 0xFF;
     screen->bg.g = (params->background_color >> 8) & 0xFF;
@@ -1239,8 +1245,54 @@ sc_disconnect_on_timeout(struct sc_disconnect *d, void *userdata) {
     (void) ok; // ignore failure
 }
 
+// appcpy: ask the device to stop capturing and encoding video while the
+// window is minimized. Resuming restarts the encoder, which sends a new session
+// header and key frame; until then the last frame stays on screen.
+static void
+sc_screen_update_video_paused(struct sc_screen *screen) {
+    if (!screen->pause_video_when_minimized || !screen->window_shown
+            || screen->disconnected) {
+        return;
+    }
+
+    bool minimized = SDL_GetWindowFlags(screen->window) & SDL_WINDOW_MINIMIZED;
+    if (minimized == screen->video_paused_by_minimize) {
+        return;
+    }
+
+    struct sc_control_msg msg;
+    msg.type = SC_CONTROL_MSG_TYPE_SET_VIDEO_PAUSED;
+    msg.set_video_paused.paused = minimized;
+    msg.set_video_paused.freeze_app = screen->freeze_app_when_minimized;
+    if (!sc_controller_push_msg(screen->controller, &msg)) {
+        LOGW("Could not request to %s video",
+             minimized ? "pause" : "resume");
+        return;
+    }
+
+    screen->video_paused_by_minimize = minimized;
+    LOGI("Device video %s", !minimized ? "resumed"
+                          : screen->freeze_app_when_minimized
+                              ? "paused and app frozen while minimized"
+                              : "paused while minimized");
+}
+
 void
 sc_screen_handle_event(struct sc_screen *screen, const SDL_Event *event) {
+    switch (event->type) {
+        case SDL_EVENT_WINDOW_MINIMIZED:
+        case SDL_EVENT_WINDOW_RESTORED:
+        case SDL_EVENT_WINDOW_MAXIMIZED:
+        case SDL_EVENT_WINDOW_SHOWN:
+        case SDL_EVENT_WINDOW_EXPOSED:
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+            // Not consumed: the events are also handled below
+            sc_screen_update_video_paused(screen);
+            break;
+        default:
+            break;
+    }
+
     switch (event->type) {
         case SC_EVENT_OPEN_WINDOW: {
             struct sc_size *size = event->user.data1;

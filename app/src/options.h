@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
+/* Modified by appcpy: percentage scaling for flex displays, key mapping and pausing video while minimized. */
 #ifndef SCRCPY_OPTIONS_H
 #define SCRCPY_OPTIONS_H
 
@@ -375,6 +375,8 @@ struct scrcpy_options {
     bool flex_display_integer_scaling;
     uint8_t flex_display_scale; // appcpy: percentage of window dimensions
     const char *keymap; // appcpy: keyboard-to-touch mapping file
+    bool pause_video_when_minimized; // appcpy
+    bool freeze_app_when_minimized; // appcpy: implies pause_video_when_minimized
     bool ignore_video_encoder_constraints;
     bool update_terminal_title;
 };

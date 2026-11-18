@@ -1,3 +1,4 @@
+// Modified by appcpy: pausing video while the client window is minimized.
 package com.genymobile.scrcpy.video;
 
 import com.genymobile.scrcpy.AndroidVersions;
@@ -112,6 +113,23 @@ public class SurfaceEncoder implements AsyncProcessor {
                     // The reasons for the previous failed encoding must be preserved when retrying
                     resetReasons |= retainedResetReasons;
                     retainedResetReasons = 0;
+                }
+
+                if (captureControl.isPaused()) {
+                    // appcpy: no capture and no encoding until the client resumes the video
+                    capture.pause(captureControl.isFreezeWhilePaused());
+                    Ln.i(captureControl.isFreezeWhilePaused() ? "Video paused, display frozen" : "Video paused");
+                    try {
+                        captureControl.waitWhilePaused();
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                    // Keep the reasons received while paused (for example a display change)
+                    resetReasons |= captureControl.consumeReset();
+                    if ((resetReasons & CaptureControl.RESET_REASON_TERMINATED) != 0 || stopped.get()) {
+                        break;
+                    }
+                    Ln.i("Video resumed");
                 }
 
                 capture.prepare();

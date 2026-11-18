@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
+/* Modified by appcpy: percentage scaling for flex displays, key mapping and pausing video while minimized. */
 #include "common.h"
 
 #include <assert.h>
@@ -188,6 +188,35 @@ static void test_flex_scale(void) {
     assert(!scrcpy_parse_args(&args, ARRAY_LEN(no_flex), no_flex));
 }
 
+static void test_pause_video_when_minimized(void) {
+    struct scrcpy_cli_args args = {.opts = scrcpy_options_default};
+    assert(!args.opts.pause_video_when_minimized);
+    char *valid[] = {"scrcpy", "--new-display", "--pause-video-when-minimized"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(valid), valid));
+    assert(args.opts.pause_video_when_minimized);
+
+    assert(!args.opts.freeze_app_when_minimized);
+
+    args.opts = scrcpy_options_default;
+    char *freeze[] = {"scrcpy", "--new-display", "--freeze-app-when-minimized"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(freeze), freeze));
+    assert(args.opts.pause_video_when_minimized);
+    assert(args.opts.freeze_app_when_minimized);
+
+    args.opts = scrcpy_options_default;
+    char *freeze_mirror[] = {"scrcpy", "--freeze-app-when-minimized"};
+    assert(!scrcpy_parse_args(&args, ARRAY_LEN(freeze_mirror), freeze_mirror));
+
+    args.opts = scrcpy_options_default;
+    char *mirror[] = {"scrcpy", "--pause-video-when-minimized"};
+    assert(!scrcpy_parse_args(&args, ARRAY_LEN(mirror), mirror));
+
+    args.opts = scrcpy_options_default;
+    char *no_control[] = {"scrcpy", "--new-display", "-n",
+                          "--pause-video-when-minimized"};
+    assert(!scrcpy_parse_args(&args, ARRAY_LEN(no_control), no_control));
+}
+
 static void test_keymap_option(void) {
     struct scrcpy_cli_args args = {.opts = scrcpy_options_default};
     assert(!args.opts.keymap);
@@ -207,5 +236,6 @@ int main(int argc, char *argv[]) {
     test_parse_shortcut_mods();
     test_flex_scale();
     test_keymap_option();
+    test_pause_video_when_minimized();
     return 0;
 }

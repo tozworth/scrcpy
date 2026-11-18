@@ -1,3 +1,4 @@
+// Modified by appcpy: pausing video while the client window is minimized.
 package com.genymobile.scrcpy.control;
 
 import com.genymobile.scrcpy.model.Position;
@@ -30,6 +31,8 @@ public final class ControlMessage {
     public static final int TYPE_CAMERA_ZOOM_OUT = 20;
     public static final int TYPE_RESIZE_DISPLAY = 21;
     public static final int TYPE_SCAN_FILE = 22;
+    // appcpy: pause or resume video capture and encoding
+    public static final int TYPE_SET_VIDEO_PAUSED = 200;
 
     public static final long SEQUENCE_INVALID = 0;
 
@@ -131,6 +134,18 @@ public final class ControlMessage {
         ControlMessage msg = new ControlMessage();
         msg.type = TYPE_SET_DISPLAY_POWER;
         msg.on = on;
+        return msg;
+    }
+
+    // appcpy: 0 resumes, 1 pauses the video, 2 pauses the video and freezes the app (stops composing the display)
+    public static final int VIDEO_RESUME = 0;
+    public static final int VIDEO_PAUSE = 1;
+    public static final int VIDEO_PAUSE_AND_FREEZE = 2;
+
+    public static ControlMessage createSetVideoPaused(int mode) {
+        ControlMessage msg = new ControlMessage();
+        msg.type = TYPE_SET_VIDEO_PAUSED;
+        msg.action = mode;
         return msg;
     }
 

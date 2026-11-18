@@ -1,3 +1,4 @@
+/* Modified by appcpy: pausing video while the window is minimized. */
 #include "common.h"
 
 #include <assert.h>
@@ -516,6 +517,37 @@ static void test_serialize_resize_display(void) {
     assert(!memcmp(buf, expected, sizeof(expected)));
 }
 
+static void test_serialize_set_video_paused(void) {
+    struct sc_control_msg msg = {
+        .type = SC_CONTROL_MSG_TYPE_SET_VIDEO_PAUSED,
+        .set_video_paused = {
+            .paused = true,
+        },
+    };
+
+    uint8_t buf[SC_CONTROL_MSG_MAX_SIZE];
+    size_t size = sc_control_msg_serialize(&msg, buf);
+    assert(size == 2);
+
+    const uint8_t expected[] = {
+        200, // SC_CONTROL_MSG_TYPE_SET_VIDEO_PAUSED
+        0x01, // paused
+    };
+    assert(!memcmp(buf, expected, sizeof(expected)));
+
+    msg.set_video_paused.freeze_app = true;
+    size = sc_control_msg_serialize(&msg, buf);
+    assert(size == 2);
+    assert(buf[0] == 200);
+    assert(buf[1] == 0x02);
+
+    msg.set_video_paused.paused = false;
+    size = sc_control_msg_serialize(&msg, buf);
+    assert(size == 2);
+    assert(buf[0] == 200);
+    assert(buf[1] == 0x00);
+}
+
 static void test_serialize_scan_file(void) {
     struct sc_control_msg msg = {
         .type = SC_CONTROL_MSG_TYPE_SCAN_FILE,
@@ -565,6 +597,7 @@ int main(int argc, char *argv[]) {
     test_serialize_camera_zoom_in();
     test_serialize_camera_zoom_out();
     test_serialize_resize_display();
+    test_serialize_set_video_paused();
     test_serialize_scan_file();
     return 0;
 }

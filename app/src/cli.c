@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
+/* Modified by appcpy: percentage scaling for flex displays, key mapping and pausing video while minimized. */
 #include "cli.h"
 
 #include <assert.h>
@@ -116,6 +116,8 @@ enum {
     OPT_FLEX_DISPLAY_SCALE,
     OPT_FLEX_DISPLAY_INTEGER_SCALING,
     OPT_KEYMAP,
+    OPT_PAUSE_VIDEO_WHEN_MINIMIZED,
+    OPT_FREEZE_APP_WHEN_MINIMIZED,
 };
 
 struct sc_option {
@@ -152,6 +154,22 @@ struct sc_getopt_adapter {
 };
 
 static const struct sc_option options[] = {
+    {
+        .longopt_id = OPT_PAUSE_VIDEO_WHEN_MINIMIZED,
+        .longopt = "pause-video-when-minimized",
+        .text = "Stop video capture and encoding on the device while the "
+                "window is minimized, and resume with a new key frame when it "
+                "is restored. Audio and control continue. Requires "
+                "--new-display. (appcpy)",
+    },
+    {
+        .longopt_id = OPT_FREEZE_APP_WHEN_MINIMIZED,
+        .longopt = "freeze-app-when-minimized",
+        .text = "Like --pause-video-when-minimized, but also stop composing "
+                "the display, so apps that render on it block until the window "
+                "is restored (games may stop, including their sound). "
+                "(appcpy)",
+    },
     {
         .longopt_id = OPT_KEYMAP,
         .longopt = "keymap",
@@ -3037,6 +3055,13 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
             case OPT_KEYMAP:
                 opts->keymap = optarg;
                 break;
+            case OPT_PAUSE_VIDEO_WHEN_MINIMIZED:
+                opts->pause_video_when_minimized = true;
+                break;
+            case OPT_FREEZE_APP_WHEN_MINIMIZED:
+                opts->pause_video_when_minimized = true;
+                opts->freeze_app_when_minimized = true;
+                break;
             case OPT_FLEX_DISPLAY_SCALE: {
                 long scale;
                 if (!parse_integer_arg(optarg, &scale, false, 25, 100,
@@ -3395,6 +3420,19 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                                 || opts->flex_display_integer_scaling)) {
         LOGE("Flex display scaling requires -x/--flex-display");
         return false;
+    }
+
+    if (opts->pause_video_when_minimized) {
+        if (opts->video_source != SC_VIDEO_SOURCE_DISPLAY
+                || !opts->new_display) {
+            LOGE("--pause-video-when-minimized requires --new-display");
+            return false;
+        }
+        if (!opts->control) {
+            LOGE("-n/--no-control is not compatible with "
+                 "--pause-video-when-minimized");
+            return false;
+        }
     }
 
     if (opts->flex_display) {

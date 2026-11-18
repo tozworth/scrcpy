@@ -1,3 +1,4 @@
+// Modified by appcpy: pausing video while the client window is minimized.
 package com.genymobile.scrcpy.video;
 
 import com.genymobile.scrcpy.AndroidVersions;
@@ -18,9 +19,14 @@ import com.genymobile.scrcpy.util.AffineMatrix;
 import com.genymobile.scrcpy.util.Ln;
 import com.genymobile.scrcpy.wrappers.ServiceManager;
 
+import android.graphics.ImageFormat;
 import android.graphics.Rect;
 import android.hardware.display.VirtualDisplay;
+import android.media.Image;
+import android.media.ImageReader;
 import android.os.Build;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.view.Surface;
 
 import java.io.IOException;
@@ -65,6 +71,10 @@ public class NewDisplayCapture extends SurfaceCapture {
     private VideoConstraints videoConstraints;
 
     private VirtualDisplay virtualDisplay;
+
+    // appcpy: while the video is paused, frames are composed into this sink and dropped immediately
+    private ImageReader pauseSink;
+    private HandlerThread pauseSinkThread;
     private Size videoSize;
     private Size displaySize; // the logical size of the display (including rotation)
     private Size physicalSize; // the physical size of the display (without rotation)
@@ -277,6 +287,7 @@ public class NewDisplayCapture extends SurfaceCapture {
         } else {
             virtualDisplay.setSurface(surface);
         }
+        releasePauseSink();
 
         if (vdListener != null) {
             PositionMapper positionMapper = PositionMapper.create(videoSize, eventTransform, displaySize);
@@ -289,6 +300,54 @@ public class NewDisplayCapture extends SurfaceCapture {
         if (glRunner != null) {
             glRunner.stopAndRelease();
             glRunner = null;
+        }
+    }
+
+    @Override
+    public void pause(boolean freeze) {
+        // appcpy: nothing is encoded or sent while paused. Detaching the surface (freeze) also stops composing this display:
+        // nothing consumes its frames, so apps rendering on it block on their buffers and games stop (including their sound).
+        // Otherwise, compose into an opaque sink that releases every frame as soon as it arrives, so apps keep running.
+        synchronized (this) {
+            if (virtualDisplay == null) {
+                return;
+            }
+            releasePauseSink();
+            if (freeze) {
+                virtualDisplay.setSurface(null);
+                return;
+            }
+            try {
+                pauseSinkThread = new HandlerThread("pause-sink");
+                pauseSinkThread.start();
+                pauseSink = ImageReader.newInstance(physicalSize.getWidth(), physicalSize.getHeight(), ImageFormat.PRIVATE, 2);
+                pauseSink.setOnImageAvailableListener(reader -> {
+                    try {
+                        Image image = reader.acquireLatestImage();
+                        if (image != null) {
+                            image.close();
+                        }
+                    } catch (RuntimeException e) {
+                        // The reader may be closed concurrently on resume
+                    }
+                }, new Handler(pauseSinkThread.getLooper()));
+                virtualDisplay.setSurface(pauseSink.getSurface());
+            } catch (RuntimeException e) {
+                Ln.w("Could not create the paused video sink, detaching the display surface: " + e.getMessage());
+                releasePauseSink();
+                virtualDisplay.setSurface(null);
+            }
+        }
+    }
+
+    private synchronized void releasePauseSink() {
+        if (pauseSink != null) {
+            pauseSink.close();
+            pauseSink = null;
+        }
+        if (pauseSinkThread != null) {
+            pauseSinkThread.quitSafely();
+            pauseSinkThread = null;
         }
     }
 
@@ -307,6 +366,7 @@ public class NewDisplayCapture extends SurfaceCapture {
                 setCurrentVirtualDisplay(null);
             }
         }
+        releasePauseSink();
     }
 
     @Override

@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
+/* Modified by appcpy: percentage scaling for flex displays, key mapping and pausing video while minimized. */
 #include "options.h"
 
 #include <stddef.h>
@@ -126,6 +126,8 @@ const struct scrcpy_options scrcpy_options_default = {
     .flex_display_scale = 100,
     .flex_display_integer_scaling = false,
     .keymap = NULL,
+    .pause_video_when_minimized = false,
+    .freeze_app_when_minimized = false,
     .ignore_video_encoder_constraints = false,
     .update_terminal_title = true,
 };

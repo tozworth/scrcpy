@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
+/* Modified by appcpy: percentage scaling for flex displays, key mapping and pausing video while minimized. */
 #ifndef SC_SCREEN_H
 #define SC_SCREEN_H
 
@@ -43,6 +43,10 @@ struct sc_screen {
     bool flex_display;
     bool flex_display_integer_scaling;
     uint8_t flex_display_scale;
+    // appcpy: stop device video while minimized
+    bool pause_video_when_minimized;
+    bool freeze_app_when_minimized;
+    bool video_paused_by_minimize;
 
     struct sc_controller *controller;
 
@@ -125,6 +129,8 @@ struct sc_screen_params {
     uint8_t flex_display_scale;
     const char *keymap; // appcpy: may be NULL
     uint16_t keymap_dpi; // appcpy: 0 if unknown
+    bool pause_video_when_minimized; // appcpy: requires a controller
+    bool freeze_app_when_minimized; // appcpy
 
     struct sc_controller *controller;
     struct sc_file_pusher *fp;

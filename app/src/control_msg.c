@@ -1,3 +1,4 @@
+/* Modified by appcpy: pausing video while the window is minimized. */
 #include "control_msg.h"
 
 #include <assert.h>
@@ -194,6 +195,11 @@ sc_control_msg_serialize(const struct sc_control_msg *msg, uint8_t *buf) {
                                       SC_CONTROL_MSG_SCAN_FILE_PATH_MAX_LENGTH);
             return 1 + len;
         };
+        case SC_CONTROL_MSG_TYPE_SET_VIDEO_PAUSED:
+            // 0: resume, 1: pause (the app keeps running), 2: pause and freeze
+            buf[1] = !msg->set_video_paused.paused ? 0
+                   : msg->set_video_paused.freeze_app ? 2 : 1;
+            return 2;
         case SC_CONTROL_MSG_TYPE_EXPAND_NOTIFICATION_PANEL:
         case SC_CONTROL_MSG_TYPE_EXPAND_SETTINGS_PANEL:
         case SC_CONTROL_MSG_TYPE_COLLAPSE_PANELS:
@@ -286,6 +292,12 @@ sc_control_msg_log(const struct sc_control_msg *msg) {
             LOG_CMSG("resize display %" PRIu16 "x%" PRIu16,
                      msg->resize_display.width, msg->resize_display.height);
             break;
+        case SC_CONTROL_MSG_TYPE_SET_VIDEO_PAUSED:
+            LOG_CMSG("video %s",
+                     !msg->set_video_paused.paused ? "resumed"
+                     : msg->set_video_paused.freeze_app ? "paused (app frozen)"
+                     : "paused");
+            break;
         case SC_CONTROL_MSG_TYPE_EXPAND_NOTIFICATION_PANEL:
             LOG_CMSG("expand notification panel");
             break;
@@ -361,8 +373,11 @@ sc_control_msg_is_droppable(const struct sc_control_msg *msg) {
     // UHID_INPUT messages for this device to be invalid.
     // Cannot drop UHID_DESTROY messages either, because a further UHID_CREATE
     // with the same id may fail.
+    // appcpy: a dropped SET_VIDEO_PAUSED would leave the video stopped (or
+    // running while minimized).
     return msg->type != SC_CONTROL_MSG_TYPE_UHID_CREATE
-        && msg->type != SC_CONTROL_MSG_TYPE_UHID_DESTROY;
+        && msg->type != SC_CONTROL_MSG_TYPE_UHID_DESTROY
+        && msg->type != SC_CONTROL_MSG_TYPE_SET_VIDEO_PAUSED;
 }
 
 void

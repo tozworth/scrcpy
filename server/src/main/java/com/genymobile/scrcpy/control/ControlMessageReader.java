@@ -1,3 +1,4 @@
+// Modified by appcpy: pausing video while the client window is minimized.
 package com.genymobile.scrcpy.control;
 
 import com.genymobile.scrcpy.model.Position;
@@ -64,6 +65,8 @@ public class ControlMessageReader {
                 return parseResizeDisplay();
             case ControlMessage.TYPE_SCAN_FILE:
                 return parseScanFile();
+            case ControlMessage.TYPE_SET_VIDEO_PAUSED:
+                return parseSetVideoPaused();
             default:
                 throw new ControlProtocolException("Unknown event type: " + type);
         }
@@ -172,6 +175,14 @@ public class ControlMessageReader {
     private ControlMessage parseStartApp() throws IOException {
         String name = parseString(1);
         return ControlMessage.createStartApp(name);
+    }
+
+    private ControlMessage parseSetVideoPaused() throws IOException {
+        int mode = dis.readUnsignedByte();
+        if (mode > ControlMessage.VIDEO_PAUSE_AND_FREEZE) {
+            throw new ControlProtocolException("Unknown video pause mode: " + mode);
+        }
+        return ControlMessage.createSetVideoPaused(mode);
     }
 
     private ControlMessage parseCameraSetTorch() throws IOException {

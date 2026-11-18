@@ -1,3 +1,4 @@
+/* Modified by appcpy: pausing video while the window is minimized. */
 #ifndef SC_CONTROLMSG_H
 #define SC_CONTROLMSG_H
 
@@ -50,6 +51,8 @@ enum sc_control_msg_type {
     SC_CONTROL_MSG_TYPE_CAMERA_ZOOM_OUT,
     SC_CONTROL_MSG_TYPE_RESIZE_DISPLAY,
     SC_CONTROL_MSG_TYPE_SCAN_FILE,
+    // appcpy: pause or resume video capture and encoding on the device
+    SC_CONTROL_MSG_TYPE_SET_VIDEO_PAUSED = 200,
 };
 
 enum sc_copy_key {
@@ -128,6 +131,10 @@ struct sc_control_msg {
         struct {
             char *path; // owned, to be freed by free()
         } scan_file;
+        struct {
+            bool paused;
+            bool freeze_app; // also stop composing, which blocks the app's rendering
+        } set_video_paused; // appcpy
     };
 };
 

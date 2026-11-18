@@ -1,3 +1,4 @@
+// Modified by appcpy: pausing video while the client window is minimized.
 package com.genymobile.scrcpy.video;
 
 import com.genymobile.scrcpy.model.ConfigurationException;
@@ -56,6 +57,18 @@ public abstract class SurfaceCapture {
      * Stop the capture.
      */
     public void stop() {
+        // Do nothing by default
+    }
+
+    /**
+     * Detach the capture from its (released) target surface while the video is paused (appcpy).
+     * <p>
+     * Called after {@link #stop()}. The next {@link #start(Surface)} attaches a new surface.
+     *
+     * @param freeze {@code true} to stop rendering the source entirely (apps drawing on it may block), {@code false} to keep it
+     * running without encoding
+     */
+    public void pause(boolean freeze) {
         // Do nothing by default
     }
 

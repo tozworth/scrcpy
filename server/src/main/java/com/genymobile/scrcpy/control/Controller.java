@@ -1,3 +1,4 @@
+// Modified by appcpy: pausing video while the client window is minimized.
 package com.genymobile.scrcpy.control;
 
 import com.genymobile.scrcpy.AndroidVersions;
@@ -336,6 +337,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
         switch (type) {
             case ControlMessage.TYPE_RESET_VIDEO:
                 resetVideo();
+                return true;
+            case ControlMessage.TYPE_SET_VIDEO_PAUSED:
+                setVideoPaused(msg.getAction());
                 return true;
             default:
                 // fall through
@@ -873,6 +877,12 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
         if (surfaceCapture != null) {
             Ln.i("Video capture reset");
             surfaceCapture.getCaptureControl().reset(CaptureControl.RESET_REASON_CLIENT_RESET);
+        }
+    }
+
+    private void setVideoPaused(int mode) {
+        if (surfaceCapture != null) {
+            surfaceCapture.getCaptureControl().setPaused(mode != ControlMessage.VIDEO_RESUME, mode == ControlMessage.VIDEO_PAUSE_AND_FREEZE);
         }
     }
 
