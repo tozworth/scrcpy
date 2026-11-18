@@ -833,15 +833,19 @@ sc_screen_show_initial_window(struct sc_screen *screen) {
         .y = y,
     };
 
+    struct sc_size preferred_size = screen->content_size;
+    if (screen->flex_display && screen->flex_display_scale != 100) {
+        preferred_size.width = sc_flex_unscale_dimension(preferred_size.width,
+                                        screen->flex_display_scale,
+                                        screen->flex_display_integer_scaling);
+        preferred_size.height = sc_flex_unscale_dimension(preferred_size.height,
+                                        screen->flex_display_scale,
+                                        screen->flex_display_integer_scaling);
+    }
     struct sc_size window_size =
-        get_initial_optimal_size(screen->content_size, screen->req.width,
-                                                       screen->req.height);
-
-    if (screen->flex_display && screen->flex_display_scale == 100
-            && window_size.width == screen->content_size.width
-            && window_size.height == screen->content_size.height) {
-        // Avoid sending an unnecessary initial "resize display" request to the
-        // server if the size has not changed.
+        get_initial_optimal_size(preferred_size, screen->req.width,
+                                                 screen->req.height);
+    if (screen->flex_display) {
         sc_screen_track_resize(screen, window_size);
     }
 
@@ -860,11 +864,14 @@ sc_screen_show_initial_window(struct sc_screen *screen) {
 
     screen->window_shown = true;
     sc_sdl_show_window(screen->window);
-    if (screen->flex_display && screen->flex_display_scale != 100) {
-        // Initial capture uses --new-display dimensions. Request the scaled
-        // size after showing the window, even if SDL emits no resize event.
+    if (screen->flex_display) {
+        // The server starts at the scaled size. Ask for a resize only if
+        // desktop bounds or initial fullscreen changed the window size.
         struct sc_size size = sc_sdl_get_window_size(screen->window);
-        sc_screen_request_resize_display(screen, size.width, size.height);
+        if (size.width != preferred_size.width
+                || size.height != preferred_size.height) {
+            sc_screen_request_resize_display(screen, size.width, size.height);
+        }
     }
     sc_screen_update_content_rect(screen);
 }

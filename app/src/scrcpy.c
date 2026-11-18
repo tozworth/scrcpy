@@ -454,6 +454,8 @@ scrcpy(struct scrcpy_options *options) {
         .control = options->control,
         .display_id = options->display_id,
         .new_display = options->new_display,
+        .flex_display_scale = options->flex_display_scale,
+        .flex_display_integer_scaling = options->flex_display_integer_scaling,
         .display_ime_policy = options->display_ime_policy,
         .video = options->video,
         .audio = options->audio,

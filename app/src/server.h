@@ -75,6 +75,8 @@ struct sc_server_params {
     bool vd_system_decorations;
     bool keep_active;
     bool flex_display;
+    uint8_t flex_display_scale;
+    bool flex_display_integer_scaling;
     uint16_t unpause_interval_seconds;
     uint16_t unpause_duration_seconds;
     bool pause_playback_on_close;

@@ -436,6 +436,12 @@ execute_server(struct sc_server *server,
     }
     if (params->flex_display) {
         ADD_PARAM("flex_display=true");
+        if (params->flex_display_scale != 100) {
+            ADD_PARAM("flex_display_scale=%" PRIu8, params->flex_display_scale);
+            if (params->flex_display_scale == 33 && params->flex_display_integer_scaling) {
+                ADD_PARAM("flex_display_integer_scaling=true");
+            }
+        }
     }
     if (params->unpause_interval_seconds) {
         ADD_PARAM("unpause_while_minimized=%" PRIu16 ":%" PRIu16,

@@ -69,6 +69,8 @@ public class NewDisplayCapture extends SurfaceCapture {
     private final boolean vdSystemDecorations;
     private final boolean secureDisplay;
     private final boolean flexDisplay;
+    private final int flexScaleNumerator;
+    private final int flexScaleDenominator;
 
     private VideoConstraints videoConstraints;
 
@@ -101,6 +103,10 @@ public class NewDisplayCapture extends SurfaceCapture {
         this.vdSystemDecorations = options.getVDSystemDecorations();
         this.secureDisplay = options.getSecureDisplay();
         this.flexDisplay = options.getFlexDisplay();
+        int scale = options.getFlexDisplayScale();
+        boolean exactThird = scale == 33 && options.getFlexDisplayIntegerScaling();
+        this.flexScaleNumerator = exactThird ? 1 : scale;
+        this.flexScaleDenominator = exactThird ? 3 : 100;
     }
 
     @Override
@@ -122,6 +128,9 @@ public class NewDisplayCapture extends SurfaceCapture {
             if (displaySize == null) {
                 displaySize = new Size(1280, 960);
             }
+            if (flexScaleNumerator != flexScaleDenominator) {
+                displaySize = new Size(scaleInitialDimension(displaySize.getWidth()), scaleInitialDimension(displaySize.getHeight()));
+            }
             if (dpi == 0) {
                 dpi = 160;
             }
@@ -139,6 +148,11 @@ public class NewDisplayCapture extends SurfaceCapture {
                 mainDisplayDpi = 240;
             }
         }
+    }
+
+    private int scaleInitialDimension(int dimension) {
+        // Match the client's calculation for window resize requests.
+        return (int) Math.max(16, (long) dimension * flexScaleNumerator / flexScaleDenominator);
     }
 
     @Override

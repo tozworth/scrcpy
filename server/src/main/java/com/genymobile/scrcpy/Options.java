@@ -72,6 +72,8 @@ public class Options {
     private boolean pausePlaybackOnClose;
     private boolean secureDisplay;
     private boolean flexDisplay;
+    private int flexDisplayScale = 100;
+    private boolean flexDisplayIntegerScaling;
 
     private boolean keepActive;
     private boolean ignoreVideoEncoderConstraints;
@@ -293,6 +295,14 @@ public class Options {
 
     public boolean getFlexDisplay() {
         return flexDisplay;
+    }
+
+    public int getFlexDisplayScale() {
+        return flexDisplayScale;
+    }
+
+    public boolean getFlexDisplayIntegerScaling() {
+        return flexDisplayIntegerScaling;
     }
 
     public boolean getIgnoreVideoEncoderConstraints() {
@@ -570,6 +580,16 @@ public class Options {
                     break;
                 case "flex_display":
                     options.flexDisplay = Boolean.parseBoolean(value);
+                    break;
+                case "flex_display_scale":
+                    int scale = Integer.parseInt(value);
+                    if (scale < 25 || scale > 100) {
+                        throw new IllegalArgumentException("Flex display scale must be between 25 and 100");
+                    }
+                    options.flexDisplayScale = scale;
+                    break;
+                case "flex_display_integer_scaling":
+                    options.flexDisplayIntegerScaling = Boolean.parseBoolean(value);
                     break;
                 case "capture_orientation":
                     Pair<Orientation.Lock, Orientation> pair = parseCaptureOrientation(value);
