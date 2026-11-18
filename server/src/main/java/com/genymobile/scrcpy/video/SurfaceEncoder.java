@@ -144,7 +144,7 @@ public class SurfaceEncoder implements AsyncProcessor {
                         CaptureControl.PauseMode mode = CaptureControl.PauseMode.RUNNING;
                         while ((mode = captureControl.awaitPauseModeChange(mode, unpauseIntervalMs,
                                 unpauseDurationMs)) != CaptureControl.PauseMode.RUNNING) {
-                            capture.pause(mode == CaptureControl.PauseMode.DISPLAY_FROZEN);
+                            capture.pause(mode == CaptureControl.PauseMode.DISPLAY_FROZEN, persistentSurface);
                             videoPaused = true;
                         }
                     } catch (InterruptedException e) {
@@ -183,6 +183,7 @@ public class SurfaceEncoder implements AsyncProcessor {
 
                     mediaCodec.start();
                     mediaCodecStarted = true;
+                    capture.onEncoderStarted();
 
                     // Set the MediaCodec instance to "interrupt" (by signaling an EOS) on reset
                     captureControl.setRunningMediaCodec(mediaCodec);

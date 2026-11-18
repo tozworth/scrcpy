@@ -16,6 +16,7 @@ import com.genymobile.scrcpy.opengl.AffineOpenGLFilter;
 import com.genymobile.scrcpy.opengl.OpenGLFilter;
 import com.genymobile.scrcpy.opengl.OpenGLRunner;
 import com.genymobile.scrcpy.util.AffineMatrix;
+import com.genymobile.scrcpy.util.Command;
 import com.genymobile.scrcpy.util.Ln;
 import com.genymobile.scrcpy.wrappers.ServiceManager;
 
@@ -27,6 +28,7 @@ import android.media.ImageReader;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.view.Display;
 import android.view.Surface;
 
 import java.io.IOException;
@@ -76,7 +78,9 @@ public class NewDisplayCapture extends SurfaceCapture {
 
     private VirtualDisplay virtualDisplay;
 
-    // appcpy: while the video is paused, frames are composed into this sink and dropped immediately
+    private boolean pausePowerOverride;
+
+    // While capture is paused, the fallback sink drops frames as soon as they arrive.
     private ImageReader pauseSink;
     private HandlerThread pauseSinkThread;
     private Size videoSize;
@@ -316,6 +320,13 @@ public class NewDisplayCapture extends SurfaceCapture {
     }
 
     @Override
+    public void onEncoderStarted() throws IOException {
+        if (pausePowerOverride && !setPausePower(false)) {
+            throw new IOException("Could not restore virtual display power");
+        }
+    }
+
+    @Override
     public void stop() {
         if (glRunner != null) {
             glRunner.stopAndRelease();
@@ -324,18 +335,24 @@ public class NewDisplayCapture extends SurfaceCapture {
     }
 
     @Override
-    public void pause(boolean freeze) {
-        // appcpy: nothing is encoded or sent while paused. Detaching the surface (freeze) also stops composing this display:
-        // nothing consumes its frames, so apps rendering on it block on their buffers and games stop (including their sound).
-        // Otherwise, compose into an opaque sink that releases every frame as soon as it arrives, so apps keep running.
+    public void pause(boolean freeze, Surface persistentSurface) {
+        // Freeze stops display composition. Keep the persistent encoder surface connected
+        // when Android lets us power off this display independently.
+        // A non-frozen pause must keep consuming buffers so apps can continue drawing.
         synchronized (this) {
             if (virtualDisplay == null) {
                 return;
             }
             if (freeze) {
-                virtualDisplay.setSurface(null);
+                if (persistentSurface == null || virtualDisplay.getSurface() != persistentSurface || !setPausePower(true)) {
+                    virtualDisplay.setSurface(null);
+                }
                 releasePauseSink();
                 Ln.i("Video paused, display frozen");
+                return;
+            }
+            if (pausePowerOverride) {
+                Ln.i(setPausePower(false) ? "Video paused, display active" : "Video paused, display frozen");
                 return;
             }
             releasePauseSink();
@@ -363,6 +380,31 @@ public class NewDisplayCapture extends SurfaceCapture {
             }
             Ln.i("Video paused, display active");
         }
+    }
+
+    private boolean setPausePower(boolean off) {
+        if (Build.VERSION.SDK_INT < AndroidVersions.API_35_ANDROID_15) {
+            return false;
+        }
+        Display display = virtualDisplay.getDisplay();
+        String displayId = Integer.toString(display.getDisplayId());
+        try {
+            if (off) {
+                Command.exec("cmd", "display", "power-off", displayId);
+                pausePowerOverride = true;
+                if (display.getState() == Display.STATE_OFF) {
+                    return true;
+                }
+            }
+            Command.exec("cmd", "display", "power-reset", displayId);
+            pausePowerOverride = false;
+            return !off;
+        } catch (IOException e) {
+            Ln.d("Could not " + (off ? "blank" : "restore") + " the paused virtual display: " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return false;
     }
 
     private synchronized void releasePauseSink() {

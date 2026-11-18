@@ -54,6 +54,13 @@ public abstract class SurfaceCapture {
     public abstract void start(Surface surface) throws IOException;
 
     /**
+     * Called after the encoder can accept frames.
+     */
+    public void onEncoderStarted() throws IOException {
+        // Do nothing by default
+    }
+
+    /**
      * Stop the capture.
      */
     public void stop() {
@@ -61,14 +68,15 @@ public abstract class SurfaceCapture {
     }
 
     /**
-     * Detach the capture from its (released) target surface while the video is paused (appcpy).
+     * Pause capture after encoding has stopped (appcpy).
      * <p>
-     * Called after {@link #stop()}. The next {@link #start(Surface)} attaches a new surface.
+     * Called after {@link #stop()}. The next {@link #start(Surface)} resumes capture.
      *
      * @param freeze {@code true} to stop rendering the source entirely (apps drawing on it may block), {@code false} to keep it
      * running without encoding
+     * @param persistentSurface the encoder input that survives the pause, or {@code null}
      */
-    public void pause(boolean freeze) {
+    public void pause(boolean freeze, Surface persistentSurface) {
         // Do nothing by default
     }
 
