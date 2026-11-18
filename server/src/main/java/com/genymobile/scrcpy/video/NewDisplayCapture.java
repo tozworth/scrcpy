@@ -321,6 +321,7 @@ public class NewDisplayCapture extends SurfaceCapture {
             if (freeze) {
                 virtualDisplay.setSurface(null);
                 releasePauseSink();
+                Ln.i("Video paused, display frozen");
                 return;
             }
             releasePauseSink();
@@ -343,7 +344,10 @@ public class NewDisplayCapture extends SurfaceCapture {
                 Ln.w("Could not create the paused video sink, detaching the display surface: " + e.getMessage());
                 releasePauseSink();
                 virtualDisplay.setSurface(null);
+                Ln.i("Video paused, display frozen");
+                return;
             }
+            Ln.i("Video paused, display active");
         }
     }
 

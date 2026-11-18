@@ -107,6 +107,7 @@ public class SurfaceEncoder implements AsyncProcessor {
             streamer.writeVideoHeader();
 
             int retainedResetReasons = 0;
+            boolean videoPaused = false;
 
             do {
                 int resetReasons = captureControl.consumeReset();
@@ -125,9 +126,8 @@ public class SurfaceEncoder implements AsyncProcessor {
                         CaptureControl.PauseMode mode = CaptureControl.PauseMode.RUNNING;
                         while ((mode = captureControl.awaitPauseModeChange(mode, unpauseIntervalMs,
                                 unpauseDurationMs)) != CaptureControl.PauseMode.RUNNING) {
-                            boolean freeze = mode == CaptureControl.PauseMode.DISPLAY_FROZEN;
-                            capture.pause(freeze);
-                            Ln.i(freeze ? "Video paused, display frozen" : "Video paused, display active");
+                            capture.pause(mode == CaptureControl.PauseMode.DISPLAY_FROZEN);
+                            videoPaused = true;
                         }
                     } catch (InterruptedException e) {
                         break;
@@ -137,7 +137,6 @@ public class SurfaceEncoder implements AsyncProcessor {
                     if ((resetReasons & CaptureControl.RESET_REASON_TERMINATED) != 0 || stopped.get()) {
                         break;
                     }
-                    Ln.i("Video resumed");
                 }
 
                 capture.prepare();
@@ -170,6 +169,10 @@ public class SurfaceEncoder implements AsyncProcessor {
                             boolean isClientResize = (resetReasons & CaptureControl.RESET_REASON_CLIENT_RESIZED) != 0
                                     && (resetReasons & CaptureControl.RESET_REASON_DISPLAY_PROPERTIES_CHANGED) == 0;
                             streamer.writeSessionMeta(size.getWidth(), size.getHeight(), isClientResize);
+                            if (videoPaused) {
+                                Ln.i("Video resumed");
+                                videoPaused = false;
+                            }
 
                             // If a reset is requested during encode(), it will interrupt the encoding by an EOS
                             encode(mediaCodec, streamer);
