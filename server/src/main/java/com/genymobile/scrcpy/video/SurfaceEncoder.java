@@ -57,12 +57,13 @@ public class SurfaceEncoder implements AsyncProcessor {
     private Thread thread;
     private final AtomicBoolean stopped = new AtomicBoolean();
 
-    private final CaptureControl captureControl = new CaptureControl();
+    private final CaptureControl captureControl;
 
     private VideoConstraints videoConstraints;
 
     public SurfaceEncoder(SurfaceCapture capture, Streamer streamer, Options options) {
         this.capture = capture;
+        this.captureControl = new CaptureControl(capture instanceof NewDisplayCapture);
         this.streamer = streamer;
         this.videoBitRate = options.getVideoBitRate();
         this.maxSize = options.getMaxSize();
@@ -335,6 +336,10 @@ public class SurfaceEncoder implements AsyncProcessor {
                 if (outputBufferId >= 0 && bufferInfo.size > 0) {
                     boolean isConfig = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
                     if (!isConfig) {
+                        boolean keyFrame = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0;
+                        if (!captureControl.shouldSendFrame(keyFrame)) {
+                            continue;
+                        }
                         // If this is not a config packet, then it contains a frame
                         firstFrameSent = true;
                         consecutiveErrors = 0;
