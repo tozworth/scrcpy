@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays. */
+/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
 #include "scrcpy.h"
 
 #include <assert.h>
@@ -22,6 +22,7 @@
 #include "events.h"
 #include "file_pusher.h"
 #include "hwdec.h"
+#include "keymap.h"
 #include "keyboard_sdk.h"
 #include "mouse_sdk.h"
 #include "recorder.h"
@@ -820,6 +821,8 @@ aoa_complete:
             .flex_display = options->flex_display,
             .flex_display_scale = options->flex_display_scale,
             .flex_display_integer_scaling = options->flex_display_integer_scaling,
+            .keymap = options->keymap,
+            .keymap_dpi = sc_keymap_parse_display_dpi(options->new_display),
             .controller = controller,
             .fp = fp,
             .kp = kp,

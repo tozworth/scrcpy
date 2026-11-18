@@ -1,0 +1,165 @@
+/* appcpy modification: keyboard-to-touch mapping. */
+#include "keymap.h"
+
+#include <limits.h>
+#include <string.h>
+
+static bool
+is_space(char c) {
+    return c == ' ' || c == '\t' || c == '\r';
+}
+
+static const char *
+skip_spaces(const char *p, const char *end) {
+    while (p < end && is_space(*p)) {
+        ++p;
+    }
+    return p;
+}
+
+// Parse a decimal integer without locale or errno dependencies.
+static bool
+parse_int(const char **pp, const char *end, long min, long max, long *out) {
+    const char *p = skip_spaces(*pp, end);
+    bool negative = false;
+    if (p < end && (*p == '-' || *p == '+')) {
+        negative = *p == '-';
+        ++p;
+    }
+    if (p == end || *p < '0' || *p > '9') {
+        return false;
+    }
+    long value = 0;
+    while (p < end && *p >= '0' && *p <= '9') {
+        value = value * 10 + (*p - '0');
+        if (value > 1000000) {
+            return false;
+        }
+        ++p;
+    }
+    if (p < end && !is_space(*p)) {
+        return false;
+    }
+    if (negative) {
+        value = -value;
+    }
+    if (value < min || value > max) {
+        return false;
+    }
+    *out = value;
+    *pp = p;
+    return true;
+}
+
+int
+sc_keymap_find(const struct sc_keymap *keymap, uint16_t scancode) {
+    for (unsigned i = 0; i < keymap->count; ++i) {
+        if (keymap->bindings[i].scancode == scancode) {
+            return (int) i;
+        }
+    }
+    return -1;
+}
+
+static bool
+parse_line(const char *p, const char *end, struct sc_keymap_binding *b) {
+    long scancode, ax, ay, dx, dy;
+    if (!parse_int(&p, end, 1, SC_KEYMAP_MAX_SCANCODE, &scancode)
+            || !parse_int(&p, end, 0, 100, &ax)
+            || !parse_int(&p, end, 0, 100, &ay)
+            || !parse_int(&p, end, -SC_KEYMAP_MAX_OFFSET_DP,
+                          SC_KEYMAP_MAX_OFFSET_DP, &dx)
+            || !parse_int(&p, end, -SC_KEYMAP_MAX_OFFSET_DP,
+                          SC_KEYMAP_MAX_OFFSET_DP, &dy)) {
+        return false;
+    }
+    // The rest of the line is a label for people and editors.
+    b->scancode = (uint16_t) scancode;
+    b->anchor_x = (uint8_t) ax;
+    b->anchor_y = (uint8_t) ay;
+    b->offset_x = (int32_t) dx;
+    b->offset_y = (int32_t) dy;
+    return true;
+}
+
+unsigned
+sc_keymap_parse(struct sc_keymap *keymap, const char *text, size_t len) {
+    keymap->count = 0;
+    unsigned skipped = 0;
+    const char *end = text + len;
+    const char *line = text;
+    while (line < end) {
+        const char *eol = memchr(line, '\n', end - line);
+        if (!eol) {
+            eol = end;
+        }
+        const char *p = skip_spaces(line, eol);
+        line = eol + 1;
+        if (p == eol || *p == '#') {
+            continue;
+        }
+        if (eol - p < 4 || memcmp(p, "key", 3) || !is_space(p[3])) {
+            // Unknown line kinds are reserved for later versions.
+            continue;
+        }
+        struct sc_keymap_binding b;
+        if (!parse_line(p + 3, eol, &b)
+                || sc_keymap_find(keymap, b.scancode) >= 0
+                || keymap->count == SC_KEYMAP_MAX_BINDINGS) {
+            ++skipped;
+            continue;
+        }
+        keymap->bindings[keymap->count++] = b;
+    }
+    return skipped;
+}
+
+static int32_t
+get_coordinate(uint32_t size, uint8_t anchor, int32_t offset, uint16_t dpi) {
+    int64_t value = (int64_t) size * anchor / 100
+                  + ((int64_t) offset * dpi + (offset < 0 ? -80 : 80)) / 160;
+    if (value < 0) {
+        return 0;
+    }
+    if (value >= size) {
+        return (int32_t) size - 1;
+    }
+    return (int32_t) value;
+}
+
+bool
+sc_keymap_get_point(const struct sc_keymap_binding *binding,
+                    uint32_t content_width, uint32_t content_height,
+                    uint16_t dpi, int32_t *x, int32_t *y) {
+    if (!content_width || !content_height || content_width > INT32_MAX
+            || content_height > INT32_MAX) {
+        return false;
+    }
+    *x = get_coordinate(content_width, binding->anchor_x, binding->offset_x,
+                        dpi);
+    *y = get_coordinate(content_height, binding->anchor_y, binding->offset_y,
+                        dpi);
+    return true;
+}
+
+uint16_t
+sc_keymap_parse_display_dpi(const char *new_display) {
+    if (!new_display) {
+        return 0;
+    }
+    const char *slash = strchr(new_display, '/');
+    if (!slash || !slash[1]) {
+        return 0;
+    }
+    long dpi = 0;
+    for (const char *p = slash + 1; *p; ++p) {
+        if (*p < '0' || *p > '9') {
+            return 0;
+        }
+        dpi = dpi * 10 + (*p - '0');
+        if (dpi > UINT16_MAX) {
+            return 0;
+        }
+    }
+    return (uint16_t) dpi;
+}

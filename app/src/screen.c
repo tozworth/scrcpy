@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays. */
+/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
 #include "screen.h"
 
 #include <assert.h>
@@ -748,6 +748,8 @@ sc_screen_init(struct sc_screen *screen,
         .legacy_paste = params->legacy_paste,
         .clipboard_autosync = params->clipboard_autosync,
         .shortcut_mods = params->shortcut_mods,
+        .keymap = params->keymap,
+        .keymap_dpi = params->keymap_dpi,
     };
 
     sc_input_manager_init(&screen->im, &im_params);
@@ -895,6 +897,7 @@ sc_screen_destroy(struct sc_screen *screen) {
     if (screen->disconnect_started) {
         sc_disconnect_destroy(&screen->disconnect);
     }
+    sc_input_manager_destroy(&screen->im);
     sc_texture_destroy(&screen->tex);
     av_frame_free(&screen->frame);
 #ifdef SC_DISPLAY_FORCE_OPENGL_CORE_PROFILE

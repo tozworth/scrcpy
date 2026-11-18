@@ -1,3 +1,4 @@
+/* Modified by appcpy: keyboard-to-touch mapping. */
 #ifndef SC_INPUTMANAGER_H
 #define SC_INPUTMANAGER_H
 
@@ -10,6 +11,7 @@
 
 #include "controller.h"
 #include "file_pusher.h"
+#include "keymap.h"
 #include "options.h"
 #include "trait/gamepad_processor.h"
 #include "trait/key_processor.h"
@@ -48,6 +50,18 @@ struct sc_input_manager {
     uint64_t next_sequence; // used for request acknowledgements
 
     bool disconnected;
+
+    // appcpy: keyboard-to-touch mapping
+    const char *keymap_path; // NULL if disabled
+    uint16_t keymap_dpi;
+    bool keymap_enabled;
+    bool keymap_file_present;
+    bool keymap_swallow_text;
+    int64_t keymap_mtime;
+    uint64_t keymap_pressed; // bit per binding index
+    struct sc_keymap keymap;
+    struct sc_position keymap_positions[SC_KEYMAP_MAX_BINDINGS];
+    char *keymap_title; // window title while mapping is enabled
 };
 
 struct sc_input_manager_params {
@@ -63,6 +77,9 @@ struct sc_input_manager_params {
     bool legacy_paste;
     bool clipboard_autosync;
     uint8_t shortcut_mods; // OR of enum sc_shortcut_mod values
+
+    const char *keymap; // appcpy: may be NULL
+    uint16_t keymap_dpi; // appcpy: 0 if unknown
 };
 
 void
@@ -72,5 +89,9 @@ sc_input_manager_init(struct sc_input_manager *im,
 void
 sc_input_manager_handle_event(struct sc_input_manager *im,
                               const SDL_Event *event);
+
+// appcpy: free the keymap state
+void
+sc_input_manager_destroy(struct sc_input_manager *im);
 
 #endif

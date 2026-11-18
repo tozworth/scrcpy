@@ -1,3 +1,4 @@
+/* Modified by appcpy: keyboard-to-touch mapping. */
 #include "input_manager.h"
 
 #include <assert.h>
@@ -13,6 +14,9 @@
 #include "shortcut_mod.h"
 #include "util/log.h"
 #include "util/sdl.h"
+
+static void
+keymap_reload(struct sc_input_manager *im);
 
 void
 sc_input_manager_init(struct sc_input_manager *im,
@@ -49,6 +53,235 @@ sc_input_manager_init(struct sc_input_manager *im,
     im->next_sequence = 1; // 0 is reserved for SC_SEQUENCE_INVALID
 
     im->disconnected = false;
+
+    im->keymap_path = params->keymap;
+    im->keymap_dpi = params->keymap_dpi ? params->keymap_dpi : 160;
+    im->keymap_enabled = true;
+    im->keymap_file_present = false;
+    im->keymap_swallow_text = false;
+    im->keymap_mtime = 0;
+    im->keymap_pressed = 0;
+    im->keymap.count = 0;
+    im->keymap_title = NULL;
+    if (im->keymap_path) {
+        if (!params->keymap_dpi) {
+            LOGW("Keymap: --new-display has no density, assuming 160 dpi");
+        }
+        keymap_reload(im);
+    }
+}
+
+// appcpy: keyboard-to-touch mapping. Each binding uses its own pointer, so
+// several mapped keys can be held at once, independently of the mouse.
+#define SC_POINTER_ID_KEYMAP_BASE UINT64_C(0x6170706370790000)
+
+static bool
+keymap_send(struct sc_input_manager *im, unsigned index, bool down) {
+    struct sc_control_msg msg;
+    msg.type = SC_CONTROL_MSG_TYPE_INJECT_TOUCH_EVENT;
+    msg.inject_touch_event.action = down ? AMOTION_EVENT_ACTION_DOWN
+                                         : AMOTION_EVENT_ACTION_UP;
+    msg.inject_touch_event.position = im->keymap_positions[index];
+    msg.inject_touch_event.pointer_id = SC_POINTER_ID_KEYMAP_BASE + index;
+    msg.inject_touch_event.pressure = down ? 1.0f : 0.0f;
+    msg.inject_touch_event.action_button = 0;
+    msg.inject_touch_event.buttons = 0;
+
+    if (!sc_controller_push_msg(im->controller, &msg)) {
+        LOGW("Could not request 'inject mapped key touch'");
+        return false;
+    }
+    return true;
+}
+
+static void
+keymap_release_all(struct sc_input_manager *im) {
+    for (unsigned i = 0; i < SC_KEYMAP_MAX_BINDINGS; ++i) {
+        uint64_t bit = UINT64_C(1) << i;
+        if (im->keymap_pressed & bit) {
+            keymap_send(im, i, false);
+            im->keymap_pressed &= ~bit;
+        }
+    }
+}
+
+// Convert displayed content coordinates to frame coordinates, as
+// sc_screen_convert_window_to_frame_coords() does once the window placement
+// is removed.
+static struct sc_point
+keymap_content_to_frame(enum sc_orientation orientation, int32_t w, int32_t h,
+                        int32_t x, int32_t y) {
+    struct sc_point result;
+    switch (orientation) {
+        case SC_ORIENTATION_0:
+            result.x = x;
+            result.y = y;
+            break;
+        case SC_ORIENTATION_90:
+            result.x = y;
+            result.y = w - x;
+            break;
+        case SC_ORIENTATION_180:
+            result.x = w - x;
+            result.y = h - y;
+            break;
+        case SC_ORIENTATION_270:
+            result.x = h - y;
+            result.y = x;
+            break;
+        case SC_ORIENTATION_FLIP_0:
+            result.x = w - x;
+            result.y = y;
+            break;
+        case SC_ORIENTATION_FLIP_90:
+            result.x = h - y;
+            result.y = w - x;
+            break;
+        case SC_ORIENTATION_FLIP_180:
+            result.x = x;
+            result.y = h - y;
+            break;
+        default:
+            assert(orientation == SC_ORIENTATION_FLIP_270);
+            result.x = y;
+            result.y = x;
+            break;
+    }
+    return result;
+}
+
+static void
+keymap_press(struct sc_input_manager *im, unsigned index) {
+    unsigned pressed = 0;
+    for (uint64_t bits = im->keymap_pressed; bits; bits &= bits - 1) {
+        ++pressed;
+    }
+    if (pressed >= SC_KEYMAP_MAX_PRESSED) {
+        LOGW("Keymap: too many mapped keys held at once");
+        return;
+    }
+
+    struct sc_screen *screen = im->screen;
+    struct sc_size content = screen->content_size;
+    int32_t x, y;
+    if (!screen->video || !sc_keymap_get_point(&im->keymap.bindings[index],
+                                               content.width, content.height,
+                                               im->keymap_dpi, &x, &y)) {
+        return;
+    }
+
+    struct sc_position *position = &im->keymap_positions[index];
+    position->screen_size = screen->frame_size;
+    position->point = keymap_content_to_frame(screen->orientation,
+                                              content.width, content.height,
+                                              x, y);
+    if (keymap_send(im, index, true)) {
+        im->keymap_pressed |= UINT64_C(1) << index;
+    }
+}
+
+// Reload the keymap if the file changed, appeared or disappeared.
+static void
+keymap_reload(struct sc_input_manager *im) {
+    SDL_PathInfo info;
+    bool present = SDL_GetPathInfo(im->keymap_path, &info)
+                && info.type == SDL_PATHTYPE_FILE;
+    int64_t mtime = present ? info.modify_time : 0;
+    if (present == im->keymap_file_present && mtime == im->keymap_mtime) {
+        return;
+    }
+
+    keymap_release_all(im);
+    im->keymap_file_present = present;
+    im->keymap_mtime = mtime;
+    im->keymap.count = 0;
+    if (!present) {
+        LOGI("Keymap: no file, no keys mapped");
+        return;
+    }
+
+    size_t size;
+    char *data = SDL_LoadFile(im->keymap_path, &size);
+    if (!data) {
+        LOGW("Keymap: could not read file: %s", SDL_GetError());
+        return;
+    }
+    unsigned skipped = sc_keymap_parse(&im->keymap, data, size);
+    SDL_free(data);
+    if (skipped) {
+        LOGW("Keymap: skipped %u invalid line(s)", skipped);
+    }
+    LOGI("Keymap: %u key(s) mapped", im->keymap.count);
+}
+
+static void
+keymap_set_enabled(struct sc_input_manager *im, bool enabled) {
+    keymap_release_all(im);
+    im->keymap_enabled = enabled;
+    LOGI("Keymap: %s", enabled ? "on" : "off");
+
+    SDL_Window *window = im->screen->window;
+    if (!enabled) {
+        const char *title = SDL_GetWindowTitle(window);
+        free(im->keymap_title);
+        im->keymap_title = strdup(title ? title : "");
+        char *off = NULL;
+        if (im->keymap_title
+                && SDL_asprintf(&off, "%s (keys off)", im->keymap_title) >= 0) {
+            SDL_SetWindowTitle(window, off);
+            SDL_free(off);
+        }
+    } else if (im->keymap_title) {
+        SDL_SetWindowTitle(window, im->keymap_title);
+        free(im->keymap_title);
+        im->keymap_title = NULL;
+    }
+}
+
+// Return true if the key event was consumed by the keymap.
+static bool
+keymap_process_key(struct sc_input_manager *im,
+                   const SDL_KeyboardEvent *event, bool is_shortcut) {
+    bool down = event->type == SDL_EVENT_KEY_DOWN;
+
+    if (is_shortcut && event->key == SDLK_K && !(im->kp && im->kp->hid)) {
+        if (down && !event->repeat) {
+            keymap_set_enabled(im, !im->keymap_enabled);
+        }
+        return true;
+    }
+
+    int index = event->scancode <= SC_KEYMAP_MAX_SCANCODE
+              ? sc_keymap_find(&im->keymap, (uint16_t) event->scancode)
+              : -1;
+    if (!down) {
+        // Always lift a held finger, even if a modifier is pressed now.
+        if (index >= 0 && im->keymap_pressed & (UINT64_C(1) << index)) {
+            keymap_send(im, (unsigned) index, false);
+            im->keymap_pressed &= ~(UINT64_C(1) << index);
+            return true;
+        }
+        return index >= 0 && im->keymap_enabled && !is_shortcut;
+    }
+
+    if (index < 0 || !im->keymap_enabled || is_shortcut || !im->controller
+            || im->camera || im->disconnected || im->screen->paused) {
+        im->keymap_swallow_text = false;
+        return false;
+    }
+
+    // The same key press may also generate a text input event.
+    im->keymap_swallow_text = true;
+    if (!event->repeat && !(im->keymap_pressed & (UINT64_C(1) << index))) {
+        keymap_press(im, (unsigned) index);
+    }
+    return true;
+}
+
+void
+sc_input_manager_destroy(struct sc_input_manager *im) {
+    free(im->keymap_title);
+    im->keymap_title = NULL;
 }
 
 static void
@@ -356,6 +589,12 @@ sc_input_manager_process_text_input(struct sc_input_manager *im,
         return;
     }
 
+    if (im->keymap_swallow_text) {
+        // appcpy: text generated by a mapped key
+        im->keymap_swallow_text = false;
+        return;
+    }
+
     if (!im->kp->ops->process_text) {
         // The key processor does not support text input
         return;
@@ -436,6 +675,10 @@ sc_input_manager_process_key(struct sc_input_manager *im,
     uint16_t mods = im->sdl_shortcut_mods;
     bool is_shortcut = sc_shortcut_mods_is_shortcut_mod(mods, mod)
                     || sc_shortcut_mods_is_shortcut_key(mods, sdl_keycode);
+
+    if (im->keymap_path && keymap_process_key(im, event, is_shortcut)) {
+        return;
+    }
 
     if (down && !repeat && !disconnected) {
         if (sdl_keycode == im->last_keycode && mod == im->last_mod) {
@@ -752,6 +995,13 @@ sc_input_manager_process_mouse_motion(struct sc_input_manager *im,
 
     if (event->which == SDL_TOUCH_MOUSEID) {
         // simulated from touch events, so it's a duplicate
+        return;
+    }
+
+    if (im->keymap_pressed && !im->mouse_buttons_state
+            && !im->mp->relative_mode) {
+        // appcpy: the server would send a mouse hover event that also carries
+        // the held mapped fingers, so do not forward hover while keys are held
         return;
     }
 
@@ -1205,6 +1455,18 @@ sc_input_manager_handle_event(struct sc_input_manager *im,
             break;
         case SC_EVENT_DEVICE_DISCONNECTED:
             sc_input_manager_on_device_disconnected(im);
+            break;
+        case SDL_EVENT_WINDOW_FOCUS_LOST:
+            // appcpy: do not leave fingers down after Alt+Tab
+            if (im->keymap_path && !im->disconnected) {
+                keymap_release_all(im);
+            }
+            break;
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+            // appcpy: pick up keymap edits
+            if (im->keymap_path && !im->disconnected) {
+                keymap_reload(im);
+            }
             break;
     }
 }

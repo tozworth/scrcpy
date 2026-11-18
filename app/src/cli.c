@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays. */
+/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
 #include "cli.h"
 
 #include <assert.h>
@@ -115,6 +115,7 @@ enum {
     OPT_HWDEC,
     OPT_FLEX_DISPLAY_SCALE,
     OPT_FLEX_DISPLAY_INTEGER_SCALING,
+    OPT_KEYMAP,
 };
 
 struct sc_option {
@@ -151,6 +152,18 @@ struct sc_getopt_adapter {
 };
 
 static const struct sc_option options[] = {
+    {
+        .longopt_id = OPT_KEYMAP,
+        .longopt = "keymap",
+        .argdesc = "file",
+        .text = "Map keyboard keys to touches. Each line of the file is\n"
+                "    key <scancode> <anchor-x%> <anchor-y%> <dx-dp> <dy-dp>\n"
+                "Mapped keys hold a finger at the point while pressed. The "
+                "file is reloaded when the window gains focus; a missing file "
+                "maps no keys. MOD+k toggles mapping (unless the keyboard is "
+                "HID). Offsets use the --new-display density (default 160). "
+                "(appcpy)",
+    },
     {
         .longopt_id = OPT_FLEX_DISPLAY_INTEGER_SCALING,
         .longopt = "flex-display-integer-scaling",
@@ -3020,6 +3033,9 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                 break;
             case OPT_FLEX_DISPLAY_INTEGER_SCALING:
                 opts->flex_display_integer_scaling = true;
+                break;
+            case OPT_KEYMAP:
+                opts->keymap = optarg;
                 break;
             case OPT_FLEX_DISPLAY_SCALE: {
                 long scale;

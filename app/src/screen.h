@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays. */
+/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
 #ifndef SC_SCREEN_H
 #define SC_SCREEN_H
 
@@ -123,6 +123,8 @@ struct sc_screen_params {
     bool flex_display;
     bool flex_display_integer_scaling;
     uint8_t flex_display_scale;
+    const char *keymap; // appcpy: may be NULL
+    uint16_t keymap_dpi; // appcpy: 0 if unknown
 
     struct sc_controller *controller;
     struct sc_file_pusher *fp;

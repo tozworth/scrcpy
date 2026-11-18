@@ -1,4 +1,4 @@
-# Modified by appcpy: flex scale tests and debugoptimized test builds.
+# Modified by appcpy: flex scale and keymap sources/tests, debugoptimized test builds.
 src = [
     'src/main.c',
     'src/adb/adb.c',
@@ -24,6 +24,7 @@ src = [
     'src/hwdec.c',
     'src/icon.c',
     'src/input_manager.c',
+    'src/keymap.c',
     'src/keyboard_sdk.c',
     'src/mouse_capture.c',
     'src/mouse_sdk.c',
@@ -271,6 +272,7 @@ endif
 if get_option('buildtype') != 'release'
     tests = [
         ['test_flex_scale', ['tests/test_flex_scale.c']],
+        ['test_keymap', ['tests/test_keymap.c', 'src/keymap.c']],
         ['test_adb_parser', [
             'tests/test_adb_parser.c',
             'src/adb/adb_device.c',

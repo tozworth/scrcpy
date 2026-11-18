@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays. */
+/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
 #include "common.h"
 
 #include <assert.h>
@@ -188,6 +188,14 @@ static void test_flex_scale(void) {
     assert(!scrcpy_parse_args(&args, ARRAY_LEN(no_flex), no_flex));
 }
 
+static void test_keymap_option(void) {
+    struct scrcpy_cli_args args = {.opts = scrcpy_options_default};
+    assert(!args.opts.keymap);
+    char *argv[] = {"scrcpy", "--keymap=C:/data/com.example.game.keymap"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(argv), argv));
+    assert(!strcmp(args.opts.keymap, "C:/data/com.example.game.keymap"));
+}
+
 int main(int argc, char *argv[]) {
     (void) argc;
     (void) argv;
@@ -198,5 +206,6 @@ int main(int argc, char *argv[]) {
     test_options2();
     test_parse_shortcut_mods();
     test_flex_scale();
+    test_keymap_option();
     return 0;
 }

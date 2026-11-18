@@ -1,4 +1,4 @@
-/* Modified by appcpy: percentage scaling for flex displays. */
+/* Modified by appcpy: percentage scaling for flex displays and key mapping. */
 #ifndef SCRCPY_OPTIONS_H
 #define SCRCPY_OPTIONS_H
 
@@ -374,6 +374,7 @@ struct scrcpy_options {
     bool flex_display;
     bool flex_display_integer_scaling;
     uint8_t flex_display_scale; // appcpy: percentage of window dimensions
+    const char *keymap; // appcpy: keyboard-to-touch mapping file
     bool ignore_video_encoder_constraints;
     bool update_terminal_title;
 };
