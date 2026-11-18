@@ -47,6 +47,7 @@ public class SurfaceEncoder implements AsyncProcessor {
     private final boolean downsizeOnError;
     private final int minSizeAlignment;
     private final boolean ignoreVideoEncoderConstraints;
+    private final boolean flexDisplay;
     private final long unpauseIntervalMs;
     private final long unpauseDurationMs;
 
@@ -71,8 +72,21 @@ public class SurfaceEncoder implements AsyncProcessor {
         this.downsizeOnError = options.getDownsizeOnError();
         this.minSizeAlignment = options.getMinSizeAlignment();
         this.ignoreVideoEncoderConstraints = options.getIgnoreVideoEncoderConstraints();
+        this.flexDisplay = options.getFlexDisplay();
         this.unpauseIntervalMs = options.getUnpauseIntervalSeconds() * 1000L;
         this.unpauseDurationMs = options.getUnpauseDurationSeconds() * 1000L;
+    }
+
+    private Surface createPersistentInputSurface() {
+        if (!flexDisplay || Build.VERSION.SDK_INT < AndroidVersions.API_23_ANDROID_6_0) {
+            return null;
+        }
+        try {
+            return MediaCodec.createPersistentInputSurface();
+        } catch (IllegalStateException | IllegalArgumentException | UnsupportedOperationException e) {
+            Ln.w("Could not create a persistent video input surface, using the encoder surface: " + e.getMessage());
+            return null;
+        }
     }
 
     private void streamCapture() throws IOException, ConfigurationException {
@@ -101,6 +115,9 @@ public class SurfaceEncoder implements AsyncProcessor {
 
         capture.init(captureControl, videoConstraints);
 
+        // Keep SurfaceFlinger's consumer connected across encoder restarts.
+        // Replacing it after a resize can leave the display several frames behind.
+        Surface persistentSurface = createPersistentInputSurface();
         try {
             boolean alive;
 
@@ -146,11 +163,19 @@ public class SurfaceEncoder implements AsyncProcessor {
                 format.setInteger(MediaFormat.KEY_HEIGHT, size.getHeight());
 
                 Surface surface = null;
+                boolean usingPersistentSurface = false;
+                boolean retryWithEncoderSurface = false;
                 boolean mediaCodecStarted = false;
                 boolean captureStarted = false;
                 try {
                     mediaCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-                    surface = mediaCodec.createInputSurface();
+                    if (persistentSurface != null) {
+                        usingPersistentSurface = true;
+                        mediaCodec.setInputSurface(persistentSurface);
+                        surface = persistentSurface;
+                    } else {
+                        surface = mediaCodec.createInputSurface();
+                    }
 
                     capture.start(surface);
                     captureStarted = true;
@@ -186,9 +211,16 @@ public class SurfaceEncoder implements AsyncProcessor {
                         // Do not retry on broken pipe, which is expected on close because the socket is closed by the client
                         throw e;
                     }
-                    Ln.e("Capture/encoding error: " + e.getClass().getName() + ": " + e.getMessage());
-                    if (!prepareRetry(caps, size)) {
-                        throw e;
+                    if (usingPersistentSurface && !(e instanceof IOException)) {
+                        // An encoder can accept the format but reject a persistent input.
+                        // Retry the same geometry once with an encoder-owned surface.
+                        Ln.w("Persistent video input failed, retrying with the encoder surface: " + e.getMessage());
+                        retryWithEncoderSurface = true;
+                    } else {
+                        Ln.e("Capture/encoding error: " + e.getClass().getName() + ": " + e.getMessage());
+                        if (!prepareRetry(caps, size)) {
+                            throw e;
+                        }
                     }
                     // Keep the current resetReasons flags for the retry
                     retainedResetReasons = resetReasons;
@@ -206,14 +238,27 @@ public class SurfaceEncoder implements AsyncProcessor {
                         }
                     }
                     mediaCodec.reset();
-                    if (surface != null) {
+                    if (surface != null && !usingPersistentSurface) {
                         surface.release();
+                    }
+                    if (retryWithEncoderSurface) {
+                        persistentSurface.release();
+                        persistentSurface = null;
                     }
                 }
             } while (alive);
         } finally {
-            mediaCodec.release();
-            capture.release();
+            try {
+                mediaCodec.release();
+            } finally {
+                try {
+                    capture.release();
+                } finally {
+                    if (persistentSurface != null) {
+                        persistentSurface.release();
+                    }
+                }
+            }
         }
     }
 
