@@ -42,6 +42,7 @@ struct sc_video_regulator {
 
     sc_tick delay;
     bool first_frame_asap;
+    bool sparse_frames_asap;
     uint32_t backpressure_threshold;
 
     sc_thread thread;
@@ -66,12 +67,15 @@ struct sc_video_regulator_callbacks {
  * \param delay a (strictly) positive delay
  * \param first_frame_asap if true, do not delay the first frame (useful for
  *                         a video stream).
+ * \param sparse_frames_asap show the first frame after a source gap without
+ *                           adding a delay (while respecting session ordering).
  * \param backpressure_threshold the max number of queued items to make
  *                               apply_backpressure() return (0 to disable).
  */
 bool
 sc_video_regulator_init(struct sc_video_regulator *vr, sc_tick delay,
-                        bool first_frame_asap, uint32_t backpressure_threshold);
+                        bool first_frame_asap, bool sparse_frames_asap,
+                        uint32_t backpressure_threshold);
 
 /**
  * Stop the video regulator.

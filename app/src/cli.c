@@ -1065,10 +1065,12 @@ static const struct sc_option options[] = {
     {
         .longopt_id = OPT_VIDEO_BUFFER,
         .longopt = "video-buffer",
-        .argdesc = "ms",
+        .argdesc = "ms|auto",
         .text = "Add a buffering delay (in milliseconds) before displaying "
                 "video frames.\n"
                 "This increases latency to compensate for jitter.\n"
+                "Use auto to pace continuous video with up to 6 ms of "
+                "buffering and show sparse updates immediately. (appcpy)\n"
                 "Default is 0 (no buffering).",
     },
     {
@@ -2866,7 +2868,10 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                 opts->power_off_on_close = true;
                 break;
             case OPT_VIDEO_BUFFER:
-                if (!parse_buffering_time(optarg, &opts->video_buffer)) {
+                opts->video_buffer_auto = !strcmp(optarg, "auto");
+                if (opts->video_buffer_auto) {
+                    opts->video_buffer = SC_TICK_FROM_MS(6);
+                } else if (!parse_buffering_time(optarg, &opts->video_buffer)) {
                     return false;
                 }
                 break;

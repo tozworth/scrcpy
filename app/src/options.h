@@ -314,6 +314,7 @@ struct scrcpy_options {
     uint32_t display_id;
     uint32_t background_color;
     sc_tick video_buffer;
+    bool video_buffer_auto;
     sc_tick audio_buffer;
     sc_tick audio_output_buffer;
     sc_tick time_limit;

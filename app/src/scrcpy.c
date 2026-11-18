@@ -927,6 +927,7 @@ aoa_complete:
 #endif
             if (!sc_video_regulator_init(&s->video_regulator,
                                          options->video_buffer, true,
+                                         options->video_buffer_auto,
                                          backpressure_threshold)) {
                 goto end;
             }
@@ -961,8 +962,8 @@ aoa_complete:
                 backpressure_threshold = 0; // disabled
             }
             if (!sc_video_regulator_init(&s->v4l2_regulator,
-                                         options->v4l2_buffer,
-                                         true, backpressure_threshold)) {
+                                         options->v4l2_buffer, true, false,
+                                         backpressure_threshold)) {
                 goto end;
             }
             v4l2_regulator_initialized = true;

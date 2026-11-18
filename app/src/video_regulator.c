@@ -49,6 +49,7 @@ run_buffering(void *data) {
 
     assert(vr->delay > 0);
 
+    sc_tick previous_pts = 0;
     for (;;) {
         sc_mutex_lock(&vr->mutex);
 
@@ -70,7 +71,12 @@ run_buffering(void *data) {
             // PTS (written by the server) are expressed in microseconds
             sc_tick pts = SC_TICK_FROM_US(dpacket.frame->pts);
 
-            bool timed_out = false;
+            // An isolated update does not need to match a cadence the source
+            // has already stopped producing.
+            bool continuous = previous_pts && pts > previous_pts
+                           && pts - previous_pts <= SC_TICK_FROM_MS(32);
+            previous_pts = pts;
+            bool timed_out = vr->sparse_frames_asap && !continuous;
             while (!vr->stopped && !timed_out) {
                 sc_tick deadline = sc_clock_to_system_time(&vr->clock, pts)
                                  + vr->delay;
@@ -99,6 +105,7 @@ run_buffering(void *data) {
                                                 dpacket.frame);
         } else {
             assert(dpacket.type == SC_DELAYED_PACKET_TYPE_SESSION);
+            previous_pts = 0;
             sc_mutex_unlock(&vr->mutex);
             result = sc_frame_source_sinks_push_session(&vr->frame_source,
                                                         &dpacket.session);
@@ -190,7 +197,8 @@ sc_video_regulator_frame_sink_push(struct sc_frame_sink *sink,
     sc_clock_update(&vr->clock, recv_date, pts);
     sc_cond_signal(&vr->wait_cond);
 
-    if (vr->first_frame_asap && vr->clock.range == 1) {
+    if (vr->first_frame_asap && !vr->sparse_frames_asap
+            && vr->clock.range == 1) {
         sc_mutex_unlock(&vr->mutex);
         return sc_frame_source_sinks_push(&vr->frame_source, frame);
     }
@@ -275,7 +283,7 @@ sc_video_regulator_frame_sink_apply_backpressure(struct sc_frame_sink *sink) {
 
 bool
 sc_video_regulator_init(struct sc_video_regulator *vr, sc_tick delay,
-                        bool first_frame_asap,
+                        bool first_frame_asap, bool sparse_frames_asap,
                         uint32_t backpressure_threshold) {
     assert(delay > 0);
 
@@ -301,6 +309,7 @@ sc_video_regulator_init(struct sc_video_regulator *vr, sc_tick delay,
 
     vr->delay = delay;
     vr->first_frame_asap = first_frame_asap;
+    vr->sparse_frames_asap = sparse_frames_asap;
     vr->backpressure_threshold = backpressure_threshold;
     vr->stopped = false;
 

@@ -150,6 +150,20 @@ static void test_parse_shortcut_mods(void) {
     assert(!ok);
 }
 
+static void test_video_buffer_auto(void) {
+    struct scrcpy_cli_args args = {.opts = scrcpy_options_default};
+    char *automatic[] = {"scrcpy", "--video-buffer=auto"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(automatic), automatic));
+    assert(args.opts.video_buffer_auto);
+    assert(args.opts.video_buffer == SC_TICK_FROM_MS(6));
+
+    args.opts = scrcpy_options_default;
+    char *override[] = {"scrcpy", "--video-buffer=auto", "--video-buffer=0"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(override), override));
+    assert(!args.opts.video_buffer_auto);
+    assert(!args.opts.video_buffer);
+}
+
 static void test_flex_scale(void) {
     struct scrcpy_cli_args args = {.opts = scrcpy_options_default};
     char *valid[] = {"scrcpy", "--new-display", "-x", "--flex-display-scale=50"};
@@ -306,6 +320,7 @@ int main(int argc, char *argv[]) {
     test_options2();
     test_parse_shortcut_mods();
     test_flex_scale();
+    test_video_buffer_auto();
     test_keymap_option();
     test_pause_video_when_minimized();
     test_unpause_while_minimized();
