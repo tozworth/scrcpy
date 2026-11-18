@@ -1,3 +1,4 @@
+# Modified by appcpy: flex scale tests and debugoptimized test builds.
 src = [
     'src/main.c',
     'src/adb/adb.c',
@@ -267,8 +268,9 @@ endif
 ### TESTS
 
 # do not build tests in release (assertions would not be executed at all)
-if get_option('buildtype') == 'debug'
+if get_option('buildtype') != 'release'
     tests = [
+        ['test_flex_scale', ['tests/test_flex_scale.c']],
         ['test_adb_parser', [
             'tests/test_adb_parser.c',
             'src/adb/adb_device.c',

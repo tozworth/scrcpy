@@ -1,3 +1,4 @@
+/* Modified by appcpy: percentage scaling for flex displays. */
 #ifndef SC_SCREEN_H
 #define SC_SCREEN_H
 
@@ -37,8 +38,11 @@ struct sc_screen {
 
     bool video;
     bool camera;
+    bool integer_scaling_active; // appcpy: current frame fits exact scaling
     bool window_aspect_ratio_lock;
     bool flex_display;
+    bool flex_display_integer_scaling;
+    uint8_t flex_display_scale;
 
     struct sc_controller *controller;
 
@@ -117,6 +121,8 @@ struct sc_screen_params {
     bool video;
     bool camera;
     bool flex_display;
+    bool flex_display_integer_scaling;
+    uint8_t flex_display_scale;
 
     struct sc_controller *controller;
     struct sc_file_pusher *fp;

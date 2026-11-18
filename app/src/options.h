@@ -1,3 +1,4 @@
+/* Modified by appcpy: percentage scaling for flex displays. */
 #ifndef SCRCPY_OPTIONS_H
 #define SCRCPY_OPTIONS_H
 
@@ -371,6 +372,8 @@ struct scrcpy_options {
     bool camera_torch;
     bool keep_active;
     bool flex_display;
+    bool flex_display_integer_scaling;
+    uint8_t flex_display_scale; // appcpy: percentage of window dimensions
     bool ignore_video_encoder_constraints;
     bool update_terminal_title;
 };

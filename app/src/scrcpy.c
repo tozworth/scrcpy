@@ -1,3 +1,4 @@
+/* Modified by appcpy: percentage scaling for flex displays. */
 #include "scrcpy.h"
 
 #include <assert.h>
@@ -817,6 +818,8 @@ aoa_complete:
             .video = options->video_playback,
             .camera = options->video_source == SC_VIDEO_SOURCE_CAMERA,
             .flex_display = options->flex_display,
+            .flex_display_scale = options->flex_display_scale,
+            .flex_display_integer_scaling = options->flex_display_integer_scaling,
             .controller = controller,
             .fp = fp,
             .kp = kp,

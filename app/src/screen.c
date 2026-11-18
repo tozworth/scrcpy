@@ -1,3 +1,4 @@
+/* Modified by appcpy: percentage scaling for flex displays. */
 #include "screen.h"
 
 #include <assert.h>
@@ -8,6 +9,7 @@
 #include "icon.h"
 #include "options.h"
 #include "util/log.h"
+#include "util/flex_scale.h"
 #include "util/sdl.h"
 
 #define DISPLAY_MARGINS 96
@@ -250,6 +252,30 @@ sc_screen_update_content_rect(struct sc_screen *screen) {
     compute_content_rect(window_size, screen->content_size,
                          screen->is_icon_active, screen->render_fit,
                          &screen->rect);
+    screen->integer_scaling_active = false;
+    if (screen->flex_display && screen->flex_display_integer_scaling
+            && !screen->is_icon_active) {
+        // Calculate in physical pixels, then convert back for input mapping.
+        float density = SDL_GetWindowPixelDensity(screen->window);
+        if (density <= 0) {
+            density = 1;
+        }
+        uint32_t width = (uint32_t) (window_size.width * density);
+        uint32_t height = (uint32_t) (window_size.height * density);
+        unsigned factor = sc_flex_integer_factor(width, height,
+                              screen->content_size.width,
+                              screen->content_size.height,
+                              screen->flex_display_scale);
+        if (factor) {
+            uint32_t w = screen->content_size.width * factor;
+            uint32_t h = screen->content_size.height * factor;
+            screen->rect.x = ((width - w) / 2) / density;
+            screen->rect.y = ((height - h) / 2) / density;
+            screen->rect.w = w / density;
+            screen->rect.h = h / density;
+            screen->integer_scaling_active = true;
+        }
+    }
 }
 
 // render the texture to the renderer
@@ -274,6 +300,14 @@ sc_screen_render(struct sc_screen *screen, bool update_content_rect) {
                          : sc_texture_get(&screen->tex);
     if (!texture) {
         goto end;
+    }
+
+    if (screen->flex_display_integer_scaling && !screen->is_icon_active) {
+        SDL_ScaleMode mode = screen->integer_scaling_active
+                           ? SDL_SCALEMODE_NEAREST : SDL_SCALEMODE_LINEAR;
+        if (!SDL_SetTextureScaleMode(texture, mode)) {
+            LOGW("Could not set texture scale mode: %s", SDL_GetError());
+        }
     }
 
     float scale = SDL_GetWindowPixelDensity(screen->window);
@@ -348,6 +382,12 @@ sc_screen_request_resize_display(struct sc_screen *screen, uint16_t width,
                                  uint16_t height) {
     assert(screen->flex_display);
     assert(!screen->camera);
+    if (screen->flex_display_scale != 100) {
+        width = sc_flex_scale_dimension(width, screen->flex_display_scale,
+                                      screen->flex_display_integer_scaling);
+        height = sc_flex_scale_dimension(height, screen->flex_display_scale,
+                                      screen->flex_display_integer_scaling);
+    }
     if (sc_orientation_is_swap(screen->orientation)) {
         uint16_t tmp = width;
         width = height;
@@ -532,6 +572,8 @@ sc_screen_init(struct sc_screen *screen,
     screen->window_aspect_ratio_lock = params->window_aspect_ratio_lock;
     screen->render_fit = params->render_fit;
     screen->flex_display = params->flex_display;
+    screen->flex_display_scale = params->flex_display_scale;
+    screen->flex_display_integer_scaling = params->flex_display_integer_scaling;
 
     screen->bg.r = (params->background_color >> 16) & 0xFF;
     screen->bg.g = (params->background_color >> 8) & 0xFF;
@@ -643,7 +685,10 @@ sc_screen_init(struct sc_screen *screen,
     }
 #endif
 
-    bool mipmaps = params->video && params->mipmaps;
+    bool mipmaps = params->video && params->mipmaps
+                && !(params->flex_display_integer_scaling
+                     && sc_flex_requested_integer_factor(
+                            params->flex_display_scale));
     ok = sc_texture_init(&screen->tex, screen->renderer, mipmaps,
                          params->hwdec_mode);
     if (!ok) {
@@ -784,7 +829,7 @@ sc_screen_show_initial_window(struct sc_screen *screen) {
         get_initial_optimal_size(screen->content_size, screen->req.width,
                                                        screen->req.height);
 
-    if (screen->flex_display
+    if (screen->flex_display && screen->flex_display_scale == 100
             && window_size.width == screen->content_size.width
             && window_size.height == screen->content_size.height) {
         // Avoid sending an unnecessary initial "resize display" request to the
@@ -807,6 +852,12 @@ sc_screen_show_initial_window(struct sc_screen *screen) {
 
     screen->window_shown = true;
     sc_sdl_show_window(screen->window);
+    if (screen->flex_display && screen->flex_display_scale != 100) {
+        // Initial capture uses --new-display dimensions. Request the scaled
+        // size after showing the window, even if SDL emits no resize event.
+        struct sc_size size = sc_sdl_get_window_size(screen->window);
+        sc_screen_request_resize_display(screen, size.width, size.height);
+    }
     sc_screen_update_content_rect(screen);
 }
 
@@ -880,6 +931,14 @@ resize_for_content(struct sc_screen *screen, struct sc_size old_content_size,
     assert(screen->video);
 
     struct sc_size target_size = new_content_size;
+    if (screen->flex_display && screen->flex_display_scale != 100) {
+        target_size.width = sc_flex_unscale_dimension(target_size.width,
+                                                     screen->flex_display_scale,
+                                                     screen->flex_display_integer_scaling);
+        target_size.height = sc_flex_unscale_dimension(target_size.height,
+                                                      screen->flex_display_scale,
+                                                     screen->flex_display_integer_scaling);
+    }
     if (!screen->flex_display) {
         struct sc_size window_size = sc_sdl_get_window_size(screen->window);
         // Scale proportionally
@@ -975,7 +1034,16 @@ sc_screen_apply_frame(struct sc_screen *screen, bool can_resize) {
             get_oriented_size(new_frame_size, screen->orientation);
 
         if (screen->flex_display) {
-            sc_screen_track_resize(screen, new_content_size);
+            struct sc_size window_size = new_content_size;
+            if (screen->flex_display_scale != 100) {
+                window_size.width = sc_flex_unscale_dimension(window_size.width,
+                                                             screen->flex_display_scale,
+                                                     screen->flex_display_integer_scaling);
+                window_size.height = sc_flex_unscale_dimension(window_size.height,
+                                                              screen->flex_display_scale,
+                                                     screen->flex_display_integer_scaling);
+            }
+            sc_screen_track_resize(screen, window_size);
         }
 
         set_content_size(screen, new_content_size, can_resize);

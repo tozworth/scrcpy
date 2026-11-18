@@ -1,3 +1,4 @@
+/* Modified by appcpy: percentage scaling for flex displays. */
 #include "cli.h"
 
 #include <assert.h>
@@ -112,6 +113,8 @@ enum {
     OPT_IGNORE_VIDEO_ENCODER_CONSTRAINTS,
     OPT_NO_TERMINAL_TITLE,
     OPT_HWDEC,
+    OPT_FLEX_DISPLAY_SCALE,
+    OPT_FLEX_DISPLAY_INTEGER_SCALING,
 };
 
 struct sc_option {
@@ -148,6 +151,22 @@ struct sc_getopt_adapter {
 };
 
 static const struct sc_option options[] = {
+    {
+        .longopt_id = OPT_FLEX_DISPLAY_INTEGER_SCALING,
+        .longopt = "flex-display-integer-scaling",
+        .text = "Use nearest-neighbor 2x, 3x or 4x rendering at 50%, 33% or "
+                "25% flex display scale when the frame fits. 33% snaps to "
+                "exactly one third. Center spare pixels as "
+                "borders. Other scales keep normal rendering. (appcpy)",
+    },
+    {
+        .longopt_id = OPT_FLEX_DISPLAY_SCALE,
+        .longopt = "flex-display-scale",
+        .argdesc = "percent",
+        .text = "Render flex displays at 25 to 100 percent of the window size.\n"
+                "Default is 100. Lower values reduce pixel count. Density is "
+                "configured separately with --new-display=/DPI. (appcpy)",
+    },
     {
         .longopt_id = OPT_ALWAYS_ON_TOP,
         .longopt = "always-on-top",
@@ -845,8 +864,8 @@ static const struct sc_option options[] = {
                 "\"stretched\": fit the window without preserving the aspect "
                 "ratio.\n"
                 "\"unscaled\": render the display without scaling.\n"
-                "Default is \"letterbox\", unless --flex-display is set, in "
-                "which case it is \"unscaled\".",
+                "Default is \"letterbox\", except at 100% flex display scale "
+                "where it is \"unscaled\".",
     },
     {
         .longopt_id = OPT_REQUIRE_AUDIO,
@@ -2999,6 +3018,18 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
             case 'x':
                 opts->flex_display = true;
                 break;
+            case OPT_FLEX_DISPLAY_INTEGER_SCALING:
+                opts->flex_display_integer_scaling = true;
+                break;
+            case OPT_FLEX_DISPLAY_SCALE: {
+                long scale;
+                if (!parse_integer_arg(optarg, &scale, false, 25, 100,
+                                       "flex display scale")) {
+                    return false;
+                }
+                opts->flex_display_scale = (uint8_t) scale;
+                break;
+            }
             case OPT_IGNORE_VIDEO_ENCODER_CONSTRAINTS:
                 opts->ignore_video_encoder_constraints = true;
                 break;
@@ -3220,7 +3251,8 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
     }
 
     if (opts->render_fit == SC_RENDER_FIT_AUTO) {
-        opts->render_fit = opts->flex_display ? SC_RENDER_FIT_UNSCALED
+        opts->render_fit = opts->flex_display && opts->flex_display_scale == 100
+                                              ? SC_RENDER_FIT_UNSCALED
                                               : SC_RENDER_FIT_LETTERBOX;
     }
 
@@ -3340,6 +3372,12 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
 
     if (opts->display_id != 0 && opts->new_display) {
         LOGE("Cannot specify both --display-id and --new-display");
+        return false;
+    }
+
+    if (!opts->flex_display && (opts->flex_display_scale != 100
+                                || opts->flex_display_integer_scaling)) {
+        LOGE("Flex display scaling requires -x/--flex-display");
         return false;
     }
 

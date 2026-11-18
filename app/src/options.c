@@ -1,3 +1,4 @@
+/* Modified by appcpy: percentage scaling for flex displays. */
 #include "options.h"
 
 #include <stddef.h>
@@ -122,6 +123,8 @@ const struct scrcpy_options scrcpy_options_default = {
     .camera_torch = false,
     .keep_active = false,
     .flex_display = false,
+    .flex_display_scale = 100,
+    .flex_display_integer_scaling = false,
     .ignore_video_encoder_constraints = false,
     .update_terminal_title = true,
 };

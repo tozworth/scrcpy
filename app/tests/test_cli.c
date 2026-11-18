@@ -1,3 +1,4 @@
+/* Modified by appcpy: percentage scaling for flex displays. */
 #include "common.h"
 
 #include <assert.h>
@@ -149,6 +150,44 @@ static void test_parse_shortcut_mods(void) {
     assert(!ok);
 }
 
+static void test_flex_scale(void) {
+    struct scrcpy_cli_args args = {.opts = scrcpy_options_default};
+    char *valid[] = {"scrcpy", "--new-display", "-x", "--flex-display-scale=50"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(valid), valid));
+    assert(args.opts.flex_display_scale == 50);
+    assert(args.opts.render_fit == SC_RENDER_FIT_LETTERBOX);
+
+    args.opts = scrcpy_options_default;
+    char *normal[] = {"scrcpy", "--new-display", "-x"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(normal), normal));
+    assert(args.opts.flex_display_scale == 100);
+    assert(args.opts.render_fit == SC_RENDER_FIT_UNSCALED);
+
+    assert(!args.opts.flex_display_integer_scaling);
+    const char *integer_scales[] = {"25", "33", "50", "75", "100"};
+    for (unsigned i = 0; i < ARRAY_LEN(integer_scales); ++i) {
+        args.opts = scrcpy_options_default;
+        char *integer[] = {"scrcpy", "--new-display", "-x",
+                          "--flex-display-integer-scaling",
+                          "--flex-display-scale", (char *) integer_scales[i]};
+        assert(scrcpy_parse_args(&args, ARRAY_LEN(integer), integer));
+        assert(args.opts.flex_display_integer_scaling);
+    }
+    args.opts = scrcpy_options_default;
+    char *integer_no_flex[] = {"scrcpy", "--flex-display-integer-scaling"};
+    assert(!scrcpy_parse_args(&args, ARRAY_LEN(integer_no_flex), integer_no_flex));
+
+    char *bad_values[] = {"0", "24", "101", "50.5", "nan"};
+    for (unsigned i = 0; i < ARRAY_LEN(bad_values); ++i) {
+        args.opts = scrcpy_options_default;
+        char *bad[] = {"scrcpy", "--new-display", "-x", "--flex-display-scale", bad_values[i]};
+        assert(!scrcpy_parse_args(&args, ARRAY_LEN(bad), bad));
+    }
+    args.opts = scrcpy_options_default;
+    char *no_flex[] = {"scrcpy", "--flex-display-scale=50"};
+    assert(!scrcpy_parse_args(&args, ARRAY_LEN(no_flex), no_flex));
+}
+
 int main(int argc, char *argv[]) {
     (void) argc;
     (void) argv;
@@ -158,5 +197,6 @@ int main(int argc, char *argv[]) {
     test_options();
     test_options2();
     test_parse_shortcut_mods();
+    test_flex_scale();
     return 0;
 }
