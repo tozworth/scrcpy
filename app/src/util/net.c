@@ -157,11 +157,23 @@ bool
 net_listen(sc_socket server_socket, uint32_t addr, uint16_t port, int backlog) {
     sc_raw_socket raw_sock = unwrap(server_socket);
 
+#ifdef _WIN32
+    // Modified by appcpy: Windows SO_REUSEADDR allows concurrent listeners
+    // on the same address, crossing ADB reverse audio/video/control streams.
+    // Reserve the port so other clients retry the next port in their range.
+    int exclusive = 1;
+    if (setsockopt(raw_sock, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                   (const void *) &exclusive, sizeof(exclusive)) == SOCKET_ERROR) {
+        net_perror("setsockopt(SO_EXCLUSIVEADDRUSE)");
+        return false;
+    }
+#else
     int reuse = 1;
     if (setsockopt(raw_sock, SOL_SOCKET, SO_REUSEADDR, (const void *) &reuse,
                    sizeof(reuse)) == -1) {
         net_perror("setsockopt(SO_REUSEADDR)");
     }
+#endif
 
     SOCKADDR_IN sin;
     sin.sin_family = AF_INET;

@@ -271,6 +271,14 @@ endif
 # do not build tests in release (assertions would not be executed at all)
 if get_option('buildtype') != 'release'
     tests = [
+        ['test_net_listener', [
+            'tests/test_net_listener.c',
+            'src/util/net.c',
+            'src/util/log.c',
+            'src/util/str.c',
+            'src/util/strbuf.c',
+            'src/util/term.c',
+        ]],
         ['test_flex_scale', ['tests/test_flex_scale.c']],
         ['test_keymap', ['tests/test_keymap.c', 'src/keymap.c']],
         ['test_adb_parser', [
