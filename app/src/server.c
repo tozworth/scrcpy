@@ -437,6 +437,11 @@ execute_server(struct sc_server *server,
     if (params->flex_display) {
         ADD_PARAM("flex_display=true");
     }
+    if (params->unpause_interval_seconds) {
+        ADD_PARAM("unpause_while_minimized=%" PRIu16 ":%" PRIu16,
+                  params->unpause_interval_seconds,
+                  params->unpause_duration_seconds);
+    }
     if (params->pause_playback_on_close) {
         ADD_PARAM("pause_playback_on_close=true");
     }

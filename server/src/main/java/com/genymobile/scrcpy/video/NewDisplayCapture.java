@@ -318,11 +318,12 @@ public class NewDisplayCapture extends SurfaceCapture {
             if (virtualDisplay == null) {
                 return;
             }
-            releasePauseSink();
             if (freeze) {
                 virtualDisplay.setSurface(null);
+                releasePauseSink();
                 return;
             }
+            releasePauseSink();
             try {
                 pauseSinkThread = new HandlerThread("pause-sink");
                 pauseSinkThread.start();

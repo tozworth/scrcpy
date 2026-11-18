@@ -243,6 +243,30 @@ static void test_keymap_option(void) {
     assert(!strcmp(args.opts.keymap, "C:/data/com.example.game.keymap"));
 }
 
+static void test_unpause_while_minimized(void) {
+    struct scrcpy_cli_args args = {.opts = scrcpy_options_default};
+    assert(!args.opts.unpause_interval_seconds);
+    char *valid[] = {"scrcpy", "--new-display", "--unpause-while-minimized=120:2",
+                     "--freeze-app-when-minimized"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(valid), valid));
+    assert(args.opts.unpause_interval_seconds == 120);
+    assert(args.opts.unpause_duration_seconds == 2);
+
+    args.opts = scrcpy_options_default;
+    char *pause[] = {"scrcpy", "--new-display", "--pause-video-when-minimized",
+                     "--unpause-while-minimized=120:2"};
+    assert(!scrcpy_parse_args(&args, ARRAY_LEN(pause), pause));
+
+    char *invalid[] = {"--unpause-while-minimized=2:2",
+                       "--unpause-while-minimized=120:0",
+                       "--unpause-while-minimized=120"};
+    for (unsigned i = 0; i < ARRAY_LEN(invalid); ++i) {
+        args.opts = scrcpy_options_default;
+        valid[2] = invalid[i];
+        assert(!scrcpy_parse_args(&args, ARRAY_LEN(valid), valid));
+    }
+}
+
 static void test_pause_playback_on_close(void) {
     struct scrcpy_cli_args args = {.opts = scrcpy_options_default};
     assert(!args.opts.pause_playback_on_close);
@@ -284,6 +308,7 @@ int main(int argc, char *argv[]) {
     test_flex_scale();
     test_keymap_option();
     test_pause_video_when_minimized();
+    test_unpause_while_minimized();
     test_secure_display_option();
     test_pause_playback_on_close();
     return 0;

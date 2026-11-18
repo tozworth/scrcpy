@@ -47,6 +47,8 @@ public class SurfaceEncoder implements AsyncProcessor {
     private final boolean downsizeOnError;
     private final int minSizeAlignment;
     private final boolean ignoreVideoEncoderConstraints;
+    private final long unpauseIntervalMs;
+    private final long unpauseDurationMs;
 
     private boolean firstFrameSent;
     private int consecutiveErrors;
@@ -69,6 +71,8 @@ public class SurfaceEncoder implements AsyncProcessor {
         this.downsizeOnError = options.getDownsizeOnError();
         this.minSizeAlignment = options.getMinSizeAlignment();
         this.ignoreVideoEncoderConstraints = options.getIgnoreVideoEncoderConstraints();
+        this.unpauseIntervalMs = options.getUnpauseIntervalSeconds() * 1000L;
+        this.unpauseDurationMs = options.getUnpauseDurationSeconds() * 1000L;
     }
 
     private void streamCapture() throws IOException, ConfigurationException {
@@ -116,11 +120,15 @@ public class SurfaceEncoder implements AsyncProcessor {
                 }
 
                 if (captureControl.isPaused()) {
-                    // appcpy: no capture and no encoding until the client resumes the video
-                    capture.pause(captureControl.isFreezeWhilePaused());
-                    Ln.i(captureControl.isFreezeWhilePaused() ? "Video paused, display frozen" : "Video paused");
+                    // Keep capture and encoding stopped even while the app is allowed to render.
                     try {
-                        captureControl.waitWhilePaused();
+                        CaptureControl.PauseMode mode = CaptureControl.PauseMode.RUNNING;
+                        while ((mode = captureControl.awaitPauseModeChange(mode, unpauseIntervalMs,
+                                unpauseDurationMs)) != CaptureControl.PauseMode.RUNNING) {
+                            boolean freeze = mode == CaptureControl.PauseMode.DISPLAY_FROZEN;
+                            capture.pause(freeze);
+                            Ln.i(freeze ? "Video paused, display frozen" : "Video paused, display active");
+                        }
                     } catch (InterruptedException e) {
                         break;
                     }

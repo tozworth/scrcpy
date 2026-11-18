@@ -75,6 +75,8 @@ struct sc_server_params {
     bool vd_system_decorations;
     bool keep_active;
     bool flex_display;
+    uint16_t unpause_interval_seconds;
+    uint16_t unpause_duration_seconds;
     bool pause_playback_on_close;
     bool secure_display;
     bool ignore_video_encoder_constraints;

@@ -118,6 +118,7 @@ enum {
     OPT_KEYMAP,
     OPT_PAUSE_VIDEO_WHEN_MINIMIZED,
     OPT_FREEZE_APP_WHEN_MINIMIZED,
+    OPT_UNPAUSE_WHILE_MINIMIZED,
     OPT_SECURE_DISPLAY,
     OPT_PAUSE_PLAYBACK_ON_CLOSE,
 };
@@ -189,6 +190,15 @@ static const struct sc_option options[] = {
                 "the display, so apps that render on it block until the window "
                 "is restored (games may stop, including their sound). "
                 "(appcpy)",
+    },
+    {
+        .longopt_id = OPT_UNPAUSE_WHILE_MINIMIZED,
+        .longopt = "unpause-while-minimized",
+        .argdesc = "interval:duration",
+        .text = "Periodically let the app render while the window is minimized "
+                "and video is paused. Interval and duration are in seconds; "
+                "duration must be shorter than interval. Requires "
+                "--freeze-app-when-minimized. (appcpy)",
     },
     {
         .longopt_id = OPT_KEYMAP,
@@ -3082,6 +3092,20 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                 opts->pause_video_when_minimized = true;
                 opts->freeze_app_when_minimized = true;
                 break;
+            case OPT_UNPAUSE_WHILE_MINIMIZED: {
+                long seconds[2];
+                // The settings editor supports up to 120 min 59 s.
+                if (parse_integers_arg(optarg, ':', 2, seconds, 1, 7259,
+                                       "unpause-while-minimized") != 2
+                        || seconds[1] >= seconds[0]) {
+                    LOGE("--unpause-while-minimized expects interval:duration "
+                         "in seconds, with a shorter duration");
+                    return false;
+                }
+                opts->unpause_interval_seconds = (uint16_t) seconds[0];
+                opts->unpause_duration_seconds = (uint16_t) seconds[1];
+                break;
+            }
             case OPT_PAUSE_PLAYBACK_ON_CLOSE:
                 opts->pause_playback_on_close = true;
                 break;
@@ -3459,6 +3483,11 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                  "--pause-video-when-minimized");
             return false;
         }
+    }
+
+    if (opts->unpause_interval_seconds && !opts->freeze_app_when_minimized) {
+        LOGE("--unpause-while-minimized requires --freeze-app-when-minimized");
+        return false;
     }
 
     if (opts->pause_playback_on_close

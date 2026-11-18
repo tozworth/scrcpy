@@ -377,6 +377,8 @@ struct scrcpy_options {
     const char *keymap; // appcpy: keyboard-to-touch mapping file
     bool pause_video_when_minimized; // appcpy
     bool freeze_app_when_minimized; // appcpy: implies pause_video_when_minimized
+    uint16_t unpause_interval_seconds; // appcpy: 0 disables periodic unpause
+    uint16_t unpause_duration_seconds;
     bool pause_playback_on_close; // appcpy: pause only the launched package
     bool secure_display; // appcpy: secure display for FLAG_SECURE apps (requires root)
     bool ignore_video_encoder_constraints;

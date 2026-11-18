@@ -67,6 +67,8 @@ public class Options {
     private NewDisplay newDisplay;
     private boolean vdDestroyContent = true;
     private boolean vdSystemDecorations = true;
+    private int unpauseIntervalSeconds;
+    private int unpauseDurationSeconds;
     private boolean pausePlaybackOnClose;
     private boolean secureDisplay;
     private boolean flexDisplay;
@@ -267,6 +269,14 @@ public class Options {
 
     public boolean getVDSystemDecorations() {
         return vdSystemDecorations;
+    }
+
+    public int getUnpauseIntervalSeconds() {
+        return unpauseIntervalSeconds;
+    }
+
+    public int getUnpauseDurationSeconds() {
+        return unpauseDurationSeconds;
     }
 
     public boolean getPausePlaybackOnClose() {
@@ -540,6 +550,18 @@ public class Options {
                 case "vd_system_decorations":
                     options.vdSystemDecorations = Boolean.parseBoolean(value);
                     break;
+                case "unpause_while_minimized": {
+                    String[] seconds = value.split(":", -1);
+                    if (seconds.length != 2) {
+                        throw new IllegalArgumentException("Expected unpause interval:duration");
+                    }
+                    options.unpauseIntervalSeconds = Integer.parseInt(seconds[0]);
+                    options.unpauseDurationSeconds = Integer.parseInt(seconds[1]);
+                    if (options.unpauseDurationSeconds <= 0 || options.unpauseDurationSeconds >= options.unpauseIntervalSeconds) {
+                        throw new IllegalArgumentException("Unpause duration must be positive and shorter than the interval");
+                    }
+                    break;
+                }
                 case "pause_playback_on_close":
                     options.pausePlaybackOnClose = Boolean.parseBoolean(value);
                     break;

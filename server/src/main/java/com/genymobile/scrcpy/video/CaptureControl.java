@@ -2,6 +2,7 @@
 package com.genymobile.scrcpy.video;
 
 import android.media.MediaCodec;
+import android.os.SystemClock;
 
 public class CaptureControl {
 
@@ -15,6 +16,13 @@ public class CaptureControl {
     private int reset = 0;
     private boolean paused;
     private boolean freezeWhilePaused;
+    private long pausedAt;
+
+    public enum PauseMode {
+        RUNNING,
+        VIDEO_PAUSED,
+        DISPLAY_FROZEN,
+    }
 
     // Current instance of MediaCodec to "interrupt" on reset
     private MediaCodec runningMediaCodec;
@@ -32,7 +40,7 @@ public class CaptureControl {
     public synchronized void reset(int reason) {
         assert reason != 0;
         reset |= reason;
-        notifyAll(); // wake waitWhilePaused() (for example on termination)
+        notifyAll(); // wake awaitPauseModeChange() (for example on termination)
         if (runningMediaCodec != null) {
             try {
                 runningMediaCodec.signalEndOfInputStream();
@@ -42,17 +50,18 @@ public class CaptureControl {
         }
     }
 
-    // appcpy: while paused, the encoder stays stopped and the capture surface is detached
+    // appcpy: while paused, the encoder stays stopped
     public synchronized void setPaused(boolean paused, boolean freeze) {
-        if (paused) {
-            // Takes effect when the encoder pauses (immediately unless already paused)
-            freezeWhilePaused = freeze;
-        }
-        if (this.paused == paused) {
+        if (this.paused == paused && (!paused || freezeWhilePaused == freeze)) {
             return;
         }
+        boolean enteringPause = paused && !this.paused;
         this.paused = paused;
+        freezeWhilePaused = freeze;
         if (paused) {
+            pausedAt = SystemClock.uptimeMillis();
+        }
+        if (enteringPause) {
             reset(RESET_REASON_PAUSED);
         } else {
             notifyAll();
@@ -63,17 +72,30 @@ public class CaptureControl {
         return paused;
     }
 
-    public synchronized boolean isFreezeWhilePaused() {
-        return freezeWhilePaused;
-    }
-
     /**
-     * Block until the video is resumed or termination is requested.
+     * Wait for the next surface mode. The encoder thread owns surface changes and
+     * wakes promptly when the window is restored or the session ends.
      */
-    public synchronized void waitWhilePaused() throws InterruptedException {
+    public synchronized PauseMode awaitPauseModeChange(PauseMode applied, long intervalMs, long durationMs) throws InterruptedException {
         while (paused && (reset & RESET_REASON_TERMINATED) == 0) {
-            wait();
+            PauseMode mode = freezeWhilePaused ? PauseMode.DISPLAY_FROZEN : PauseMode.VIDEO_PAUSED;
+            long waitMs = 0; // wait indefinitely for an ordinary pause
+            if (freezeWhilePaused && intervalMs > 0) {
+                long elapsed = SystemClock.uptimeMillis() - pausedAt;
+                long phase = elapsed % intervalMs;
+                if (elapsed >= intervalMs && phase < durationMs) {
+                    mode = PauseMode.VIDEO_PAUSED;
+                    waitMs = durationMs - phase;
+                } else {
+                    waitMs = intervalMs - phase;
+                }
+            }
+            if (mode != applied) {
+                return mode;
+            }
+            wait(waitMs);
         }
+        return PauseMode.RUNNING;
     }
 
     public synchronized void setRunningMediaCodec(MediaCodec runningMediaCodec) {
