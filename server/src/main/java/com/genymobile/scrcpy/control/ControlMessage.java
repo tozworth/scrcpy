@@ -150,6 +150,13 @@ public final class ControlMessage {
         return msg;
     }
 
+    public static ControlMessage createRequestVideoKeyFrame(boolean restart) {
+        ControlMessage msg = new ControlMessage();
+        msg.type = TYPE_REQUEST_VIDEO_KEYFRAME;
+        msg.on = restart;
+        return msg;
+    }
+
     public static ControlMessage createEmpty(int type) {
         ControlMessage msg = new ControlMessage();
         msg.type = type;

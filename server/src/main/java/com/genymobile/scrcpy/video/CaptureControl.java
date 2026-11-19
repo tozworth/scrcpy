@@ -18,6 +18,7 @@ public class CaptureControl {
     public static final int RESET_REASON_CLIENT_RESIZED = 1 << 3;
     // appcpy: interrupt the running encoder to pause the video
     public static final int RESET_REASON_PAUSED = 1 << 4;
+    public static final int RESET_REASON_RECORDING = 1 << 5;
 
     private final boolean canSuspendInput;
 
@@ -104,8 +105,12 @@ public class CaptureControl {
         notifyAll();
     }
 
-    public synchronized void requestKeyFrame() {
+    public synchronized void requestKeyFrame(boolean restart) {
         if (runningMediaCodec == null || paused || reset != 0) {
+            return;
+        }
+        if (restart) {
+            reset(RESET_REASON_RECORDING);
             return;
         }
         Bundle params = new Bundle();

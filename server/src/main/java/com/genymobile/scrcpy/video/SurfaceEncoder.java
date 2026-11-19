@@ -169,6 +169,12 @@ public class SurfaceEncoder implements AsyncProcessor {
                 boolean mediaCodecStarted = false;
                 boolean captureStarted = false;
                 try {
+                    // A static display may have no new frames for a sync-frame
+                    // request. Reconnecting it to a fresh surface forces composition.
+                    if ((resetReasons & CaptureControl.RESET_REASON_RECORDING) != 0 && persistentSurface != null) {
+                        persistentSurface.release();
+                        persistentSurface = createPersistentInputSurface();
+                    }
                     mediaCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
                     if (persistentSurface != null) {
                         usingPersistentSurface = true;

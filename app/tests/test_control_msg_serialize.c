@@ -548,6 +548,19 @@ static void test_serialize_set_video_paused(void) {
     assert(buf[1] == 0x00);
 }
 
+static void test_serialize_request_video_keyframe(void) {
+    struct sc_control_msg msg = {
+        .type = SC_CONTROL_MSG_TYPE_REQUEST_VIDEO_KEYFRAME,
+    };
+    uint8_t buf[SC_CONTROL_MSG_MAX_SIZE];
+    assert(sc_control_msg_serialize(&msg, buf) == 2);
+    assert(buf[0] == 201 && buf[1] == 0);
+
+    msg.restart_video_for_keyframe = true;
+    assert(sc_control_msg_serialize(&msg, buf) == 2);
+    assert(buf[0] == 201 && buf[1] == 1);
+}
+
 static void test_serialize_scan_file(void) {
     struct sc_control_msg msg = {
         .type = SC_CONTROL_MSG_TYPE_SCAN_FILE,
@@ -598,6 +611,7 @@ int main(int argc, char *argv[]) {
     test_serialize_camera_zoom_out();
     test_serialize_resize_display();
     test_serialize_set_video_paused();
+    test_serialize_request_video_keyframe();
     test_serialize_scan_file();
     return 0;
 }

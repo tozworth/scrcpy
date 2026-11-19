@@ -8,7 +8,7 @@
 #include "util/log.h"
 #include "util/str.h"
 
-#define SC_LIVE_KEYFRAME_TIMEOUT_MS 8000
+#define SC_LIVE_KEYFRAME_TIMEOUT_MS 12000
 #define SC_LIVE_COMMAND_SIZE 32768
 
 static void
@@ -55,6 +55,7 @@ start_muxer(struct sc_live_recording *live, const AVPacket *keyframe) {
     bool ok = false;
     if (initialized) {
         muxer->live = true;
+        muxer->live_started_at = sc_tick_now();
         struct sc_packet_sink *video = &muxer->video_packet_sink;
         struct sc_packet_sink *audio = &muxer->audio_packet_sink;
         ok = video->ops->open(video, live->video_params, NULL)
@@ -137,10 +138,11 @@ finish_recording(struct sc_live_recording *live, const char *inactive_status) {
 }
 
 static void
-request_keyframe(struct sc_live_recording *live) {
+request_keyframe(struct sc_live_recording *live, bool restart) {
     if (live->controller) {
         struct sc_control_msg msg = {
             .type = SC_CONTROL_MSG_TYPE_REQUEST_VIDEO_KEYFRAME,
+            .restart_video_for_keyframe = restart,
         };
         sc_controller_push_msg(live->controller, &msg);
     }
@@ -177,7 +179,7 @@ handle_command(struct sc_live_recording *live, const char *command) {
     live->packet_error = false;
     atomic_store(&live->muxer_result, 0);
     sc_mutex_unlock(&live->mutex);
-    request_keyframe(live);
+    request_keyframe(live, false);
     return true;
 }
 
@@ -269,7 +271,7 @@ recording_commands(void *data) {
                 finish_recording(live, "no-keyframe");
             } else if (elapsed >= 1000 && !retried) {
                 retried = true;
-                request_keyframe(live);
+                request_keyframe(live, true);
             }
         }
     }

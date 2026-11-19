@@ -35,6 +35,8 @@ struct sc_recorder {
     bool audio;
     bool video;
     bool live;
+    sc_tick live_started_at;
+    sc_tick live_stopped_at;
 
     enum sc_orientation orientation;
 

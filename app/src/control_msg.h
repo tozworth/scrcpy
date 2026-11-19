@@ -136,6 +136,7 @@ struct sc_control_msg {
             bool paused;
             bool freeze_app; // also stop composing, which blocks the app's rendering
         } set_video_paused; // appcpy
+        bool restart_video_for_keyframe;
     };
 };
 

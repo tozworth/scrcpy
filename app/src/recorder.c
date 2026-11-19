@@ -366,7 +366,7 @@ sc_recorder_process_packets(struct sc_recorder *recorder) {
             video_pkt->pts -= pts_origin;
             video_pkt->dts = video_pkt->pts;
 
-            if (recorder->live) {
+            if (recorder->live && recorder->audio) {
                 // Sparse capture can leave video idle for much longer than
                 // the muxer's interleave window while audio keeps flowing.
                 bool ok = sc_recorder_write_video(recorder, video_pkt);
@@ -417,8 +417,12 @@ sc_recorder_process_packets(struct sc_recorder *recorder) {
     // Write the last video packet
     AVPacket *last = video_pkt_previous;
     if (last) {
-        // assign an arbitrary duration to the last packet
         last->duration = 100000;
+        if (recorder->live) {
+            // A static video-only recording still spans the requested time.
+            sc_tick elapsed = recorder->live_stopped_at - recorder->live_started_at;
+            last->duration = MAX(last->duration, elapsed - last->pts);
+        }
         bool ok = sc_recorder_write_video(recorder, last);
         if (!ok) {
             // failing to write the last frame is not very serious, no
@@ -794,6 +798,8 @@ sc_recorder_init(struct sc_recorder *recorder, const char *filename,
     recorder->video = video;
     recorder->audio = audio;
     recorder->live = false;
+    recorder->live_started_at = 0;
+    recorder->live_stopped_at = 0;
 
     recorder->orientation = orientation;
 
@@ -862,6 +868,9 @@ sc_recorder_start(struct sc_recorder *recorder) {
 void
 sc_recorder_stop(struct sc_recorder *recorder) {
     sc_mutex_lock(&recorder->mutex);
+    if (recorder->live && !recorder->stopped) {
+        recorder->live_stopped_at = sc_tick_now();
+    }
     recorder->stopped = true;
     sc_cond_signal(&recorder->cond);
     sc_mutex_unlock(&recorder->mutex);
