@@ -62,23 +62,20 @@ sc_keymap_find(const struct sc_keymap *keymap, uint16_t scancode) {
 }
 
 static bool
-parse_line(const char *p, const char *end, struct sc_keymap_binding *b) {
-    long scancode, ax, ay, dx, dy;
-    if (!parse_int(&p, end, 1, SC_KEYMAP_MAX_SCANCODE, &scancode)
-            || !parse_int(&p, end, 0, 100, &ax)
-            || !parse_int(&p, end, 0, 100, &ay)
-            || !parse_int(&p, end, -SC_KEYMAP_MAX_OFFSET_DP,
+parse_point(const char **p, const char *end, struct sc_keymap_point *point) {
+    long ax, ay, dx, dy;
+    if (!parse_int(p, end, 0, 100, &ax)
+            || !parse_int(p, end, 0, 100, &ay)
+            || !parse_int(p, end, -SC_KEYMAP_MAX_OFFSET_DP,
                           SC_KEYMAP_MAX_OFFSET_DP, &dx)
-            || !parse_int(&p, end, -SC_KEYMAP_MAX_OFFSET_DP,
+            || !parse_int(p, end, -SC_KEYMAP_MAX_OFFSET_DP,
                           SC_KEYMAP_MAX_OFFSET_DP, &dy)) {
         return false;
     }
-    // The rest of the line is a label for people and editors.
-    b->scancode = (uint16_t) scancode;
-    b->anchor_x = (uint8_t) ax;
-    b->anchor_y = (uint8_t) ay;
-    b->offset_x = (int32_t) dx;
-    b->offset_y = (int32_t) dy;
+    point->anchor_x = (uint8_t) ax;
+    point->anchor_y = (uint8_t) ay;
+    point->offset_x = (int32_t) dx;
+    point->offset_y = (int32_t) dy;
     return true;
 }
 
@@ -94,21 +91,27 @@ sc_keymap_parse(struct sc_keymap *keymap, const char *text, size_t len) {
             eol = end;
         }
         const char *p = skip_spaces(line, eol);
-        line = eol + 1;
+        line = eol == end ? end : eol + 1;
         if (p == eol || *p == '#') {
             continue;
         }
-        if (eol - p < 4 || memcmp(p, "key", 3) || !is_space(p[3])) {
+        bool drag = eol - p >= 5 && !memcmp(p, "drag", 4) && is_space(p[4]);
+        if (!drag && (eol - p < 4 || memcmp(p, "key", 3) || !is_space(p[3]))) {
             // Unknown line kinds are reserved for later versions.
             continue;
         }
-        struct sc_keymap_binding b;
-        if (!parse_line(p + 3, eol, &b)
-                || sc_keymap_find(keymap, b.scancode) >= 0
+        struct sc_keymap_binding b = {.drag = drag};
+        long scancode;
+        p += drag ? 4 : 3;
+        if (!parse_int(&p, eol, 1, SC_KEYMAP_MAX_SCANCODE, &scancode)
+                || !parse_point(&p, eol, &b.start)
+                || (drag && !parse_point(&p, eol, &b.end))
+                || sc_keymap_find(keymap, (uint16_t) scancode) >= 0
                 || keymap->count == SC_KEYMAP_MAX_BINDINGS) {
             ++skipped;
             continue;
         }
+        b.scancode = (uint16_t) scancode;
         keymap->bindings[keymap->count++] = b;
     }
     return skipped;
@@ -128,16 +131,16 @@ get_coordinate(uint32_t size, uint8_t anchor, int32_t offset, uint16_t dpi) {
 }
 
 bool
-sc_keymap_get_point(const struct sc_keymap_binding *binding,
+sc_keymap_get_point(const struct sc_keymap_point *point,
                     uint32_t content_width, uint32_t content_height,
                     uint16_t dpi, int32_t *x, int32_t *y) {
     if (!content_width || !content_height || content_width > INT32_MAX
             || content_height > INT32_MAX) {
         return false;
     }
-    *x = get_coordinate(content_width, binding->anchor_x, binding->offset_x,
+    *x = get_coordinate(content_width, point->anchor_x, point->offset_x,
                         dpi);
-    *y = get_coordinate(content_height, binding->anchor_y, binding->offset_y,
+    *y = get_coordinate(content_height, point->anchor_y, point->offset_y,
                         dpi);
     return true;
 }

@@ -122,7 +122,20 @@ sdl_configure_ctrl_c_windows(void) {
 static enum scrcpy_exit_code
 event_loop(struct scrcpy *s, bool has_screen) {
     SDL_Event event;
-    while (SDL_WaitEvent(&event)) {
+    for (;;) {
+        int timeout = has_screen ? sc_input_manager_step_keymap(&s->screen.im)
+                                 : -1;
+        if (timeout >= 0) {
+            SDL_ClearError();
+            if (!SDL_WaitEventTimeout(&event, timeout)) {
+                if (*SDL_GetError()) {
+                    return SCRCPY_EXIT_FAILURE;
+                }
+                continue;
+            }
+        } else if (!SDL_WaitEvent(&event)) {
+            return SCRCPY_EXIT_FAILURE;
+        }
         switch (event.type) {
             case SC_EVENT_DEVICE_DISCONNECTED:
                 LOGW("Device disconnected");
@@ -158,7 +171,6 @@ event_loop(struct scrcpy *s, bool has_screen) {
                 break;
         }
     }
-    return SCRCPY_EXIT_FAILURE;
 }
 
 // Return true on success, false on error

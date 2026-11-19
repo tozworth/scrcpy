@@ -61,6 +61,9 @@ sc_input_manager_init(struct sc_input_manager *im,
     im->keymap_swallow_text = false;
     im->keymap_mtime = 0;
     im->keymap_pressed = 0;
+    im->keymap_moving = 0;
+    im->keymap_released = 0;
+    im->keymap_next_step_ms = 0;
     im->keymap.count = 0;
     im->keymap_title = NULL;
     if (im->keymap_path) {
@@ -73,25 +76,51 @@ sc_input_manager_init(struct sc_input_manager *im,
 
 // appcpy: keyboard-to-touch mapping. Each binding uses its own pointer, so
 // several mapped keys can be held at once, independently of the mouse.
-#define SC_POINTER_ID_KEYMAP_BASE UINT64_C(0x6170706370790000)
+#define SC_KEYMAP_DRAG_SPEED_DP_PER_MS 5.0
+#define SC_KEYMAP_DRAG_STEP_MS 8
 
 static bool
-keymap_send(struct sc_input_manager *im, unsigned index, bool down) {
+keymap_send(struct sc_input_manager *im, unsigned index,
+            enum android_motionevent_action action) {
+    struct sc_position position = im->keymap_positions[index];
+    struct sc_size frame = im->screen->frame_size;
+    if (frame.width && frame.height && position.screen_size.width
+            && position.screen_size.height
+            && (position.screen_size.width != frame.width
+                || position.screen_size.height != frame.height)) {
+        // The server rejects positions carrying an older frame size.
+        position.point.x = (int64_t) position.point.x * frame.width
+                         / position.screen_size.width;
+        position.point.y = (int64_t) position.point.y * frame.height
+                         / position.screen_size.height;
+        position.screen_size = frame;
+    }
     struct sc_control_msg msg;
     msg.type = SC_CONTROL_MSG_TYPE_INJECT_TOUCH_EVENT;
-    msg.inject_touch_event.action = down ? AMOTION_EVENT_ACTION_DOWN
-                                         : AMOTION_EVENT_ACTION_UP;
-    msg.inject_touch_event.position = im->keymap_positions[index];
+    msg.inject_touch_event.action = action;
+    msg.inject_touch_event.position = position;
     msg.inject_touch_event.pointer_id = SC_POINTER_ID_KEYMAP_BASE + index;
-    msg.inject_touch_event.pressure = down ? 1.0f : 0.0f;
+    msg.inject_touch_event.pressure =
+        action == AMOTION_EVENT_ACTION_UP ? 0.0f : 1.0f;
     msg.inject_touch_event.action_button = 0;
     msg.inject_touch_event.buttons = 0;
 
     if (!sc_controller_push_msg(im->controller, &msg)) {
-        LOGW("Could not request 'inject mapped key touch'");
+        if (action != AMOTION_EVENT_ACTION_MOVE) {
+            LOGW("Could not request 'inject mapped key touch'");
+        }
         return false;
     }
     return true;
+}
+
+static void
+keymap_release(struct sc_input_manager *im, unsigned index) {
+    uint64_t bit = UINT64_C(1) << index;
+    keymap_send(im, index, AMOTION_EVENT_ACTION_UP);
+    im->keymap_pressed &= ~bit;
+    im->keymap_moving &= ~bit;
+    im->keymap_released &= ~bit;
 }
 
 static void
@@ -99,8 +128,7 @@ keymap_release_all(struct sc_input_manager *im) {
     for (unsigned i = 0; i < SC_KEYMAP_MAX_BINDINGS; ++i) {
         uint64_t bit = UINT64_C(1) << i;
         if (im->keymap_pressed & bit) {
-            keymap_send(im, i, false);
-            im->keymap_pressed &= ~bit;
+            keymap_release(im, i);
         }
     }
 }
@@ -163,8 +191,9 @@ keymap_press(struct sc_input_manager *im, unsigned index) {
 
     struct sc_screen *screen = im->screen;
     struct sc_size content = screen->content_size;
+    const struct sc_keymap_binding *binding = &im->keymap.bindings[index];
     int32_t x, y;
-    if (!screen->video || !sc_keymap_get_point(&im->keymap.bindings[index],
+    if (!screen->video || !sc_keymap_get_point(&binding->start,
                                                content.width, content.height,
                                                im->keymap_dpi, &x, &y)) {
         return;
@@ -175,9 +204,82 @@ keymap_press(struct sc_input_manager *im, unsigned index) {
     position->point = keymap_content_to_frame(screen->orientation,
                                               content.width, content.height,
                                               x, y);
-    if (keymap_send(im, index, true)) {
-        im->keymap_pressed |= UINT64_C(1) << index;
+    if (!keymap_send(im, index, AMOTION_EVENT_ACTION_DOWN)) {
+        return;
     }
+    uint64_t bit = UINT64_C(1) << index;
+    im->keymap_pressed |= bit;
+    if (!binding->drag) {
+        return;
+    }
+
+    int32_t end_x, end_y;
+    if (!sc_keymap_get_point(&binding->end, content.width, content.height,
+                             im->keymap_dpi, &end_x, &end_y)
+            || (x == end_x && y == end_y)) {
+        return;
+    }
+
+    double dx = end_x - x;
+    double dy = end_y - y;
+    double distance_dp = SDL_sqrt(dx * dx + dy * dy) * 160 / im->keymap_dpi;
+    uint64_t now = SDL_GetTicks();
+    im->keymap_drags[index] = (struct sc_keymap_drag) {
+        .start = position->point,
+        .end = keymap_content_to_frame(screen->orientation, content.width,
+                                       content.height, end_x, end_y),
+        .started_ms = now,
+        .duration_ms = distance_dp / SC_KEYMAP_DRAG_SPEED_DP_PER_MS,
+    };
+    if (!im->keymap_moving) {
+        im->keymap_next_step_ms = now + SC_KEYMAP_DRAG_STEP_MS;
+    }
+    im->keymap_moving |= bit;
+}
+
+int
+sc_input_manager_step_keymap(struct sc_input_manager *im) {
+    if (!im->keymap_moving) {
+        return -1;
+    }
+    uint64_t now = SDL_GetTicks();
+    if (now < im->keymap_next_step_ms) {
+        return (int) (im->keymap_next_step_ms - now);
+    }
+
+    for (unsigned i = 0; i < SC_KEYMAP_MAX_BINDINGS; ++i) {
+        uint64_t bit = UINT64_C(1) << i;
+        if (!(im->keymap_moving & bit)) {
+            continue;
+        }
+        const struct sc_keymap_drag *drag = &im->keymap_drags[i];
+        double progress = (now - drag->started_ms) / drag->duration_ms;
+        struct sc_point next = drag->end;
+        if (progress < 1.0) {
+            next.x = SDL_lround(drag->start.x
+                   + (drag->end.x - drag->start.x) * progress);
+            next.y = SDL_lround(drag->start.y
+                   + (drag->end.y - drag->start.y) * progress);
+        }
+
+        struct sc_point *current = &im->keymap_positions[i].point;
+        if (next.x != current->x || next.y != current->y) {
+            struct sc_point last = *current;
+            *current = next;
+            if (!keymap_send(im, i, AMOTION_EVENT_ACTION_MOVE)) {
+                *current = last;
+                continue;
+            }
+        }
+        if (progress >= 1.0) {
+            im->keymap_moving &= ~bit;
+            if (im->keymap_released & bit) {
+                keymap_release(im, i);
+            }
+        }
+    }
+    im->keymap_next_step_ms = now + SC_KEYMAP_DRAG_STEP_MS;
+    return im->keymap_moving ? SC_KEYMAP_DRAG_STEP_MS : -1;
 }
 
 // Reload the keymap if the file changed, appeared or disappeared.
@@ -254,11 +356,16 @@ keymap_process_key(struct sc_input_manager *im,
     int index = event->scancode <= SC_KEYMAP_MAX_SCANCODE
               ? sc_keymap_find(&im->keymap, (uint16_t) event->scancode)
               : -1;
+    uint64_t bit = index >= 0 ? UINT64_C(1) << index : 0;
     if (!down) {
-        // Always lift a held finger, even if a modifier is pressed now.
-        if (index >= 0 && im->keymap_pressed & (UINT64_C(1) << index)) {
-            keymap_send(im, (unsigned) index, false);
-            im->keymap_pressed &= ~(UINT64_C(1) << index);
+        // Handle key up even if a modifier is pressed now. A quick press
+        // still completes the drag before lifting the finger.
+        if (im->keymap_pressed & bit) {
+            if (im->keymap_moving & bit) {
+                im->keymap_released |= bit;
+            } else {
+                keymap_release(im, (unsigned) index);
+            }
             return true;
         }
         return index >= 0 && im->keymap_enabled && !is_shortcut;
@@ -272,8 +379,13 @@ keymap_process_key(struct sc_input_manager *im,
 
     // The same key press may also generate a text input event.
     im->keymap_swallow_text = true;
-    if (!event->repeat && !(im->keymap_pressed & (UINT64_C(1) << index))) {
-        keymap_press(im, (unsigned) index);
+    if (!event->repeat) {
+        if (!(im->keymap_pressed & bit)) {
+            keymap_press(im, (unsigned) index);
+        } else {
+            // The key was pressed again while its previous drag was moving.
+            im->keymap_released &= ~bit;
+        }
     }
     return true;
 }
@@ -1406,6 +1518,9 @@ sc_input_manager_process_file(struct sc_input_manager *im,
 static void
 sc_input_manager_on_device_disconnected(struct sc_input_manager *im) {
     im->disconnected = true;
+    im->keymap_pressed = 0;
+    im->keymap_moving = 0;
+    im->keymap_released = 0;
 
     struct sc_fps_counter *fps_counter = &im->screen->fps_counter;
     if (sc_fps_counter_is_started(fps_counter)) {

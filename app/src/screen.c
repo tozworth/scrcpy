@@ -1409,11 +1409,13 @@ sc_screen_handle_event(struct sc_screen *screen, const SDL_Event *event) {
     }
 
     if (sc_screen_is_relative_mode(screen)
-            && sc_mouse_capture_handle_event(&screen->mc, event)) {
+            && sc_mouse_capture_handle_event(&screen->mc, event)
+            && event->type != SDL_EVENT_WINDOW_FOCUS_LOST) {
         // The mouse capture handler consumed the event
         return;
     }
 
+    // Mapped touches must also be released after mouse capture is lost.
     sc_input_manager_handle_event(&screen->im, event);
 }
 

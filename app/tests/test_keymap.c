@@ -28,20 +28,38 @@ static void test_parse(void) {
     assert(parse(&km, text) == 7);
     assert(km.count == 3);
     assert(km.bindings[0].scancode == 26);
-    assert(km.bindings[0].anchor_x == 0);
-    assert(km.bindings[0].anchor_y == 100);
-    assert(km.bindings[0].offset_x == 120);
-    assert(km.bindings[0].offset_y == -80);
+    assert(!km.bindings[0].drag);
+    assert(km.bindings[0].start.anchor_x == 0);
+    assert(km.bindings[0].start.anchor_y == 100);
+    assert(km.bindings[0].start.offset_x == 120);
+    assert(km.bindings[0].start.offset_y == -80);
     assert(km.bindings[1].scancode == 44);
-    assert(km.bindings[1].offset_x == -96);
+    assert(km.bindings[1].start.offset_x == -96);
     assert(km.bindings[2].scancode == 80);
-    assert(km.bindings[2].offset_x == -10);
-    assert(km.bindings[2].offset_y == 0);
+    assert(km.bindings[2].start.offset_x == -10);
+    assert(km.bindings[2].start.offset_y == 0);
     assert(sc_keymap_find(&km, 44) == 1);
     assert(sc_keymap_find(&km, 4) == -1);
 
     assert(parse(&km, "") == 0);
     assert(km.count == 0);
+}
+
+static void test_drag(void) {
+    struct sc_keymap km;
+    assert(parse(&km, "drag\t44 0 100 120 -80 100 50 -60 10 Space bar\r\n"
+                      "key 44 0 0 0 0 duplicate\n"
+                      "drag 26 0 0 0 0 100 0 -60\n"
+                      "drag 26 0 0 0 0 101 0 -60 0\n"
+                      "key 26 0 0 0 0") == 3);
+    assert(km.count == 2);
+    assert(km.bindings[0].drag && km.bindings[0].scancode == 44);
+    assert(!km.bindings[1].drag && km.bindings[1].scancode == 26);
+    int32_t x, y;
+    assert(sc_keymap_get_point(&km.bindings[0].start, 1280, 800, 240, &x, &y));
+    assert(x == 180 && y == 680);
+    assert(sc_keymap_get_point(&km.bindings[0].end, 1280, 800, 240, &x, &y));
+    assert(x == 1190 && y == 415);
 }
 
 static void test_limit(void) {
@@ -65,8 +83,8 @@ static void test_limit(void) {
 }
 
 static void test_point(void) {
-    struct sc_keymap_binding b = {
-        .scancode = 26, .anchor_x = 0, .anchor_y = 100,
+    struct sc_keymap_point b = {
+        .anchor_x = 0, .anchor_y = 100,
         .offset_x = 100, .offset_y = -50,
     };
     int32_t x, y;
@@ -80,16 +98,16 @@ static void test_point(void) {
     assert(sc_keymap_get_point(&b, 640, 400, 120, &x, &y));
     assert(x == 75 && y == 362);
 
-    struct sc_keymap_binding c = {
-        .scancode = 44, .anchor_x = 50, .anchor_y = 50,
+    struct sc_keymap_point c = {
+        .anchor_x = 50, .anchor_y = 50,
         .offset_x = -20, .offset_y = 20,
     };
     assert(sc_keymap_get_point(&c, 1000, 600, 160, &x, &y));
     assert(x == 480 && y == 320);
 
     // Points outside the content are clamped inside it.
-    struct sc_keymap_binding far = {
-        .scancode = 4, .anchor_x = 100, .anchor_y = 0,
+    struct sc_keymap_point far = {
+        .anchor_x = 100, .anchor_y = 0,
         .offset_x = 5000, .offset_y = -5000,
     };
     assert(sc_keymap_get_point(&far, 1000, 600, 160, &x, &y));
@@ -109,6 +127,7 @@ static void test_dpi(void) {
 
 int main(void) {
     test_parse();
+    test_drag();
     test_limit();
     test_point();
     test_dpi();

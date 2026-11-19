@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "keymap.h"
 #include "util/binary.h"
 #include "util/log.h"
 #include "util/str.h"
@@ -369,6 +370,13 @@ sc_control_msg_log(const struct sc_control_msg *msg) {
 
 bool
 sc_control_msg_is_droppable(const struct sc_control_msg *msg) {
+    if (msg->type == SC_CONTROL_MSG_TYPE_INJECT_TOUCH_EVENT
+            && msg->inject_touch_event.action == AMOTION_EVENT_ACTION_UP
+            && msg->inject_touch_event.pointer_id - SC_POINTER_ID_KEYMAP_BASE
+                < SC_KEYMAP_MAX_BINDINGS) {
+        // Dropping a mapped UP would leave its finger held on the device.
+        return false;
+    }
     // Cannot drop UHID_CREATE messages, because it would cause all further
     // UHID_INPUT messages for this device to be invalid.
     // Cannot drop UHID_DESTROY messages either, because a further UHID_CREATE
