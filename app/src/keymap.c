@@ -83,6 +83,7 @@ unsigned
 sc_keymap_parse(struct sc_keymap *keymap, const char *text, size_t len) {
     keymap->count = 0;
     unsigned skipped = 0;
+    uint8_t drag_groups[SC_KEYMAP_MAX_SCANCODE + 1] = {0};
     const char *end = text + len;
     const char *line = text;
     while (line < end) {
@@ -93,6 +94,18 @@ sc_keymap_parse(struct sc_keymap *keymap, const char *text, size_t len) {
         const char *p = skip_spaces(line, eol);
         line = eol == end ? end : eol + 1;
         if (p == eol || *p == '#') {
+            continue;
+        }
+        if (eol - p >= 11 && !memcmp(p, "drag-group", 10) && is_space(p[10])) {
+            p += 10;
+            long scancode, group;
+            if (parse_int(&p, eol, 1, SC_KEYMAP_MAX_SCANCODE, &scancode)
+                    && parse_int(&p, eol, 1, SC_KEYMAP_MAX_BINDINGS, &group)
+                    && skip_spaces(p, eol) == eol) {
+                drag_groups[scancode] = (uint8_t) group;
+            } else {
+                ++skipped;
+            }
             continue;
         }
         bool drag = eol - p >= 5 && !memcmp(p, "drag", 4) && is_space(p[4]);
@@ -113,6 +126,12 @@ sc_keymap_parse(struct sc_keymap *keymap, const char *text, size_t len) {
         }
         b.scancode = (uint16_t) scancode;
         keymap->bindings[keymap->count++] = b;
+    }
+    for (unsigned i = 0; i < keymap->count; ++i) {
+        struct sc_keymap_binding *binding = &keymap->bindings[i];
+        if (binding->drag) {
+            binding->drag_group = drag_groups[binding->scancode];
+        }
     }
     return skipped;
 }

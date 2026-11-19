@@ -62,6 +62,25 @@ static void test_drag(void) {
     assert(x == 1190 && y == 415);
 }
 
+static void test_drag_groups(void) {
+    struct sc_keymap km;
+    const char *text =
+        "drag-group 26 3\n"
+        "drag 26 0 0 0 0 0 0 0 100 W\n"
+        "drag 7 0 0 0 0 0 0 100 0 D\n"
+        "drag-group\t7 3\n"
+        "drag 4 0 0 0 0 0 0 -100 0 A\n"
+        "drag-group 4 65\n"
+        "key 224 0 0 0 0 Left Ctrl\n"
+        "drag-group 224 3\n";
+    assert(parse(&km, text) == 1);
+    assert(km.count == 4);
+    assert(km.bindings[0].drag_group == 3);
+    assert(km.bindings[1].drag_group == 3);
+    assert(km.bindings[2].drag_group == 0);
+    assert(km.bindings[3].drag_group == 0);
+}
+
 static void test_limit(void) {
     struct sc_keymap km;
     char text[8192] = "";
@@ -128,6 +147,7 @@ static void test_dpi(void) {
 int main(void) {
     test_parse();
     test_drag();
+    test_drag_groups();
     test_limit();
     test_point();
     test_dpi();

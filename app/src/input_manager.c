@@ -180,15 +180,6 @@ keymap_content_to_frame(enum sc_orientation orientation, int32_t w, int32_t h,
 
 static void
 keymap_press(struct sc_input_manager *im, unsigned index) {
-    unsigned pressed = 0;
-    for (uint64_t bits = im->keymap_pressed; bits; bits &= bits - 1) {
-        ++pressed;
-    }
-    if (pressed >= SC_KEYMAP_MAX_PRESSED) {
-        LOGW("Keymap: too many mapped keys held at once");
-        return;
-    }
-
     struct sc_screen *screen = im->screen;
     struct sc_size content = screen->content_size;
     const struct sc_keymap_binding *binding = &im->keymap.bindings[index];
@@ -196,6 +187,26 @@ keymap_press(struct sc_input_manager *im, unsigned index) {
     if (!screen->video || !sc_keymap_get_point(&binding->start,
                                                content.width, content.height,
                                                im->keymap_dpi, &x, &y)) {
+        return;
+    }
+
+    if (binding->drag_group) {
+        for (unsigned i = 0; i < im->keymap.count; ++i) {
+            if ((im->keymap_pressed & (UINT64_C(1) << i))
+                    && im->keymap.bindings[i].drag_group == binding->drag_group) {
+                // Lift the previous touch before starting the new one, even
+                // if the previous drag is still on its way to the endpoint.
+                keymap_release(im, i);
+            }
+        }
+    }
+
+    unsigned pressed = 0;
+    for (uint64_t bits = im->keymap_pressed; bits; bits &= bits - 1) {
+        ++pressed;
+    }
+    if (pressed >= SC_KEYMAP_MAX_PRESSED) {
+        LOGW("Keymap: too many mapped keys held at once");
         return;
     }
 
