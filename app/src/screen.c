@@ -13,6 +13,9 @@
 #include "util/log.h"
 #include "util/flex_scale.h"
 #include "util/sdl.h"
+#ifdef _WIN32
+# include "sys/win/session_caption.h"
+#endif
 
 #define DISPLAY_MARGINS 96
 
@@ -579,7 +582,8 @@ sc_screen_init(struct sc_screen *screen,
     screen->pause_video_when_minimized = params->pause_video_when_minimized;
     screen->freeze_app_when_minimized = params->freeze_app_when_minimized;
     assert(!screen->pause_video_when_minimized || params->controller);
-    screen->video_paused_by_minimize = false;
+    screen->video_paused_manually = false;
+    screen->video_pause_mode = 0;
 
     screen->bg.r = (params->background_color >> 16) & 0xFF;
     screen->bg.g = (params->background_color >> 8) & 0xFF;
@@ -788,6 +792,11 @@ sc_screen_init(struct sc_screen *screen,
     screen->open = false;
 #endif
 
+#ifdef _WIN32
+    screen->session_caption = params->video && !params->window_borderless
+                            ? sc_session_caption_create(screen) : NULL;
+#endif
+
     if (!screen->video) {
         // Show the window immediately
         screen->window_shown = true;
@@ -906,6 +915,9 @@ void
 sc_screen_destroy(struct sc_screen *screen) {
 #ifndef NDEBUG
     assert(!screen->open);
+#endif
+#ifdef _WIN32
+    sc_session_caption_destroy(screen->session_caption);
 #endif
     if (screen->disconnect_started) {
         sc_disconnect_destroy(&screen->disconnect);
@@ -1252,36 +1264,51 @@ sc_disconnect_on_timeout(struct sc_disconnect *d, void *userdata) {
     (void) ok; // ignore failure
 }
 
-// appcpy: ask the device to stop capturing and encoding video while the
-// window is minimized. Resuming restarts the encoder, which sends a new session
-// header and key frame; until then the last frame stays on screen.
-static void
+// Manual pause keeps the app drawing and takes precedence over the automatic
+// minimized mode, including its periodic unpause schedule.
+static bool
 sc_screen_update_video_paused(struct sc_screen *screen) {
-    if (!screen->pause_video_when_minimized || !screen->window_shown
-            || screen->disconnected) {
-        return;
+    if (!screen->controller || !screen->window_shown || screen->disconnected) {
+        return false;
     }
 
     bool minimized = SDL_GetWindowFlags(screen->window) & SDL_WINDOW_MINIMIZED;
-    if (minimized == screen->video_paused_by_minimize) {
-        return;
+    bool auto_pause = screen->pause_video_when_minimized && minimized;
+    bool paused = screen->video_paused_manually || auto_pause;
+    bool freeze = auto_pause && screen->freeze_app_when_minimized
+                             && !screen->video_paused_manually;
+    enum { STREAMING, VIDEO_PAUSED, DISPLAY_FROZEN };
+    uint8_t mode = freeze ? DISPLAY_FROZEN : paused ? VIDEO_PAUSED : STREAMING;
+    if (mode == screen->video_pause_mode) {
+        return true;
     }
 
     struct sc_control_msg msg;
     msg.type = SC_CONTROL_MSG_TYPE_SET_VIDEO_PAUSED;
-    msg.set_video_paused.paused = minimized;
-    msg.set_video_paused.freeze_app = screen->freeze_app_when_minimized;
+    msg.set_video_paused.paused = paused;
+    msg.set_video_paused.freeze_app = freeze;
     if (!sc_controller_push_msg(screen->controller, &msg)) {
-        LOGW("Could not request to %s video",
-             minimized ? "pause" : "resume");
-        return;
+        LOGW("Could not request to %s video", paused ? "pause" : "resume");
+        return false;
     }
 
-    screen->video_paused_by_minimize = minimized;
-    LOGI("Device video %s", !minimized ? "resumed"
-                          : screen->freeze_app_when_minimized
-                              ? "paused and app frozen while minimized"
-                              : "paused while minimized");
+    screen->video_pause_mode = mode;
+    LOGI("Device video %s", !paused ? "resumed"
+                          : freeze ? "paused and app frozen while minimized"
+                          : screen->video_paused_manually ? "paused manually"
+                          : "paused while minimized");
+    return true;
+}
+
+bool
+sc_screen_set_manual_video_pause(struct sc_screen *screen, bool paused) {
+    bool previous = screen->video_paused_manually;
+    screen->video_paused_manually = paused;
+    if (!sc_screen_update_video_paused(screen)) {
+        screen->video_paused_manually = previous;
+        return false;
+    }
+    return true;
 }
 
 void

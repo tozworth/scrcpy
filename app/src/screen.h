@@ -43,10 +43,11 @@ struct sc_screen {
     bool flex_display;
     bool flex_display_integer_scaling;
     uint8_t flex_display_scale;
-    // appcpy: stop device video while minimized
+    // appcpy: stop device video from the deck or while minimized
     bool pause_video_when_minimized;
     bool freeze_app_when_minimized;
-    bool video_paused_by_minimize;
+    bool video_paused_manually;
+    uint8_t video_pause_mode;
 
     struct sc_controller *controller;
 
@@ -77,6 +78,9 @@ struct sc_screen {
     } req;
 
     SDL_Window *window;
+#ifdef _WIN32
+    struct sc_session_caption *session_caption;
+#endif
     SDL_Renderer *renderer;
 #ifdef SC_DISPLAY_FORCE_OPENGL_CORE_PROFILE
     SDL_GLContext gl_context;
@@ -120,6 +124,9 @@ struct sc_screen {
         struct sc_size size;
     } resize_tracker;
 };
+
+bool
+sc_screen_set_manual_video_pause(struct sc_screen *screen, bool paused);
 
 struct sc_screen_params {
     bool video;
