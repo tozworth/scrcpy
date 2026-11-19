@@ -22,6 +22,7 @@ struct sc_session_caption {
     HWND host;
     UINT open_message;
     UINT pause_message;
+    UINT pin_message;
     int width;
     int height;
     int icon_size;
@@ -229,7 +230,9 @@ button_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
                 AllowSetForegroundWindow(host_pid);
             }
             LPARAM state = (caption->screen->controller ? 1 : 0)
-                         | (caption->screen->video_paused_manually ? 2 : 0);
+                         | (caption->screen->video_paused_manually ? 2 : 0)
+                         | ((SDL_GetWindowFlags(caption->screen->window)
+                             & SDL_WINDOW_ALWAYS_ON_TOP) ? 4 : 0);
             PostMessageW(caption->host, caption->open_message, (WPARAM) hwnd,
                          state);
             return 0;
@@ -245,6 +248,11 @@ owner_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
     struct sc_session_caption *caption = (void *) data;
     if (message == caption->pause_message && (HWND) lparam == caption->host) {
         return sc_screen_set_manual_video_pause(caption->screen, wparam != 0);
+    }
+    if (message == caption->pin_message && (HWND) lparam == caption->host) {
+        // SDL reapplies its own topmost flag when resizing or leaving fullscreen.
+        return !caption->screen->disconnected
+            && SDL_SetWindowAlwaysOnTop(caption->screen->window, wparam != 0);
     }
     LRESULT result = DefSubclassProc(hwnd, message, wparam, lparam);
     switch (message) {
@@ -299,10 +307,12 @@ sc_session_caption_create(struct sc_screen *screen) {
     caption->host = (HWND) host;
     caption->open_message = RegisterWindowMessageW(L"appcpy.OpenSessionDeck");
     caption->pause_message = RegisterWindowMessageW(L"appcpy.SetSessionPaused");
+    caption->pin_message = RegisterWindowMessageW(L"appcpy.SetSessionPinned");
     caption->button = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                                      button_class, L"appcpy controls", WS_POPUP,
                                      0, 0, 0, 0, owner, NULL, instance, caption);
     if (!caption->button || !caption->open_message || !caption->pause_message
+            || !caption->pin_message
             || !SetWindowSubclass(owner, owner_proc, 1, (DWORD_PTR) caption)) {
         LOGW("Could not add the appcpy caption button");
         sc_session_caption_destroy(caption);
