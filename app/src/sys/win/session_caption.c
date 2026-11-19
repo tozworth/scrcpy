@@ -20,7 +20,9 @@ struct sc_session_caption {
     HWND owner;
     HWND button;
     HWND host;
+    HWND deck;
     UINT open_message;
+    UINT dismiss_message;
     UINT pause_message;
     UINT pin_message;
     int width;
@@ -33,6 +35,17 @@ struct sc_session_caption {
 };
 
 static const WCHAR button_class[] = L"AppcpySessionCaption";
+
+static HWND
+read_window_handle(const char *name) {
+    const char *value = SDL_getenv(name);
+    if (!value) {
+        return NULL;
+    }
+    char *end;
+    HWND hwnd = (HWND) (uintptr_t) strtoull(value, &end, 10);
+    return end != value && !*end && IsWindow(hwnd) ? hwnd : NULL;
+}
 
 static bool
 use_light_icon(HWND owner) {
@@ -254,6 +267,31 @@ owner_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
         return !caption->screen->disconnected
             && SDL_SetWindowAlwaysOnTop(caption->screen->window, wparam != 0);
     }
+    switch (message) {
+        case WM_LBUTTONDOWN:
+        case WM_RBUTTONDOWN:
+        case WM_MBUTTONDOWN:
+        case WM_XBUTTONDOWN:
+        case WM_NCLBUTTONDOWN:
+        case WM_NCRBUTTONDOWN:
+        case WM_NCMBUTTONDOWN:
+        case WM_NCXBUTTONDOWN:
+        case WM_POINTERDOWN:
+        case WM_NCPOINTERDOWN:
+            // The deck stays open on passive focus changes to its owner.
+            if (caption->deck && IsWindowVisible(caption->deck)) {
+                PostMessageW(caption->host, caption->dismiss_message,
+                             (WPARAM) caption->button, 0);
+            }
+            break;
+        case WM_MOUSEACTIVATE:
+            if (caption->deck && GetForegroundWindow() == caption->deck
+                    && (HIWORD(lparam) == WM_MOUSEMOVE
+                        || HIWORD(lparam) == WM_NCMOUSEMOVE)) {
+                return MA_NOACTIVATE;
+            }
+            break;
+    }
     if (message == WM_WINDOWPOSCHANGING) {
         WINDOWPOS *pos = (WINDOWPOS *) lparam;
         // SDL raises pinned windows on mouse entry, which can cover the deck
@@ -285,13 +323,8 @@ owner_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
 
 struct sc_session_caption *
 sc_session_caption_create(struct sc_screen *screen) {
-    const char *host_value = SDL_getenv("APPCPY_CAPTION_HOST");
-    if (!host_value) {
-        return NULL;
-    }
-    char *end;
-    uintptr_t host = (uintptr_t) strtoull(host_value, &end, 10);
-    if (end == host_value || *end || !IsWindow((HWND) host)) {
+    HWND host = read_window_handle("APPCPY_CAPTION_HOST");
+    if (!host) {
         return NULL;
     }
     HWND owner = SDL_GetPointerProperty(SDL_GetWindowProperties(screen->window),
@@ -314,15 +347,17 @@ sc_session_caption_create(struct sc_screen *screen) {
     }
     caption->screen = screen;
     caption->owner = owner;
-    caption->host = (HWND) host;
+    caption->host = host;
+    caption->deck = read_window_handle("APPCPY_CAPTION_DECK");
     caption->open_message = RegisterWindowMessageW(L"appcpy.OpenSessionDeck");
+    caption->dismiss_message = RegisterWindowMessageW(L"appcpy.DismissSessionDeck");
     caption->pause_message = RegisterWindowMessageW(L"appcpy.SetSessionPaused");
     caption->pin_message = RegisterWindowMessageW(L"appcpy.SetSessionPinned");
     caption->button = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                                      button_class, L"appcpy controls", WS_POPUP,
                                      0, 0, 0, 0, owner, NULL, instance, caption);
     if (!caption->button || !caption->open_message || !caption->pause_message
-            || !caption->pin_message
+            || !caption->pin_message || !caption->dismiss_message
             || !SetWindowSubclass(owner, owner_proc, 1, (DWORD_PTR) caption)) {
         LOGW("Could not add the appcpy caption button");
         sc_session_caption_destroy(caption);
