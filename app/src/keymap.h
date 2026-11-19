@@ -32,6 +32,9 @@ struct sc_keymap_binding {
     uint8_t drag_group; // zero if independent
     struct sc_keymap_point start;
     struct sc_keymap_point end;
+    uint16_t joystick_keys[4]; // up, right, down, left; zero if unassigned
+    uint16_t deadzone_dp;
+    uint16_t range_dp; // zero for taps and drags
 };
 
 struct sc_keymap {
@@ -45,6 +48,7 @@ struct sc_keymap {
 //     key <scancode> <anchor-x%> <anchor-y%> <offset-x-dp> <offset-y-dp> [label]
 //     drag <scancode> <start point fields> <end point fields> [label]
 //     drag-group <scancode> <group ID>
+//     joystick <center fields> <deadzone dp> <range dp> <up> <right> <down> <left>
 //
 // Lines of other kinds are ignored for forward compatibility. Invalid lines,
 // duplicate scancodes and bindings beyond the limit are skipped and counted.

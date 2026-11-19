@@ -53,9 +53,20 @@ parse_int(const char **pp, const char *end, long min, long max, long *out) {
 
 int
 sc_keymap_find(const struct sc_keymap *keymap, uint16_t scancode) {
+    if (!scancode) {
+        return -1;
+    }
     for (unsigned i = 0; i < keymap->count; ++i) {
-        if (keymap->bindings[i].scancode == scancode) {
+        const struct sc_keymap_binding *binding = &keymap->bindings[i];
+        if (binding->scancode == scancode) {
             return (int) i;
+        }
+        if (binding->range_dp) {
+            for (unsigned d = 0; d < 4; ++d) {
+                if (binding->joystick_keys[d] == scancode) {
+                    return (int) i;
+                }
+            }
         }
     }
     return -1;
@@ -79,6 +90,34 @@ parse_point(const char **p, const char *end, struct sc_keymap_point *point) {
     return true;
 }
 
+static bool
+parse_joystick(const struct sc_keymap *keymap, const char *p, const char *end,
+               struct sc_keymap_binding *binding) {
+    long deadzone, range;
+    if (!parse_point(&p, end, &binding->start)
+            || !parse_int(&p, end, 0, SC_KEYMAP_MAX_OFFSET_DP, &deadzone)
+            || !parse_int(&p, end, deadzone + 1, SC_KEYMAP_MAX_OFFSET_DP,
+                          &range)) {
+        return false;
+    }
+    for (unsigned d = 0; d < 4; ++d) {
+        long key;
+        if (!parse_int(&p, end, 0, SC_KEYMAP_MAX_SCANCODE, &key)
+                || sc_keymap_find(keymap, (uint16_t) key) >= 0) {
+            return false;
+        }
+        for (unsigned other = 0; key && other < d; ++other) {
+            if (binding->joystick_keys[other] == key) {
+                return false;
+            }
+        }
+        binding->joystick_keys[d] = (uint16_t) key;
+    }
+    binding->deadzone_dp = (uint16_t) deadzone;
+    binding->range_dp = (uint16_t) range;
+    return skip_spaces(p, end) == end;
+}
+
 unsigned
 sc_keymap_parse(struct sc_keymap *keymap, const char *text, size_t len) {
     keymap->count = 0;
@@ -94,6 +133,16 @@ sc_keymap_parse(struct sc_keymap *keymap, const char *text, size_t len) {
         const char *p = skip_spaces(line, eol);
         line = eol == end ? end : eol + 1;
         if (p == eol || *p == '#') {
+            continue;
+        }
+        if (eol - p >= 9 && !memcmp(p, "joystick", 8) && is_space(p[8])) {
+            struct sc_keymap_binding binding = {0};
+            if (keymap->count == SC_KEYMAP_MAX_BINDINGS
+                    || !parse_joystick(keymap, p + 8, eol, &binding)) {
+                ++skipped;
+            } else {
+                keymap->bindings[keymap->count++] = binding;
+            }
             continue;
         }
         if (eol - p >= 11 && !memcmp(p, "drag-group", 10) && is_space(p[10])) {

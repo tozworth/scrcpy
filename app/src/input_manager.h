@@ -69,9 +69,11 @@ struct sc_input_manager {
     uint64_t keymap_moving; // drags that have not yet reached the endpoint
     uint64_t keymap_released; // key ups deferred until the drag reaches its endpoint
     uint64_t keymap_next_step_ms;
+    uint64_t keymap_joystick_moved; // active joystick touches that sent a MOVE
     struct sc_keymap keymap;
     struct sc_position keymap_positions[SC_KEYMAP_MAX_BINDINGS];
     struct sc_keymap_drag keymap_drags[SC_KEYMAP_MAX_BINDINGS];
+    uint8_t keymap_joystick_held[SC_KEYMAP_MAX_BINDINGS];
     char *keymap_title; // window title while mapping is enabled
 };
 

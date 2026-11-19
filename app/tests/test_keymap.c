@@ -81,6 +81,28 @@ static void test_drag_groups(void) {
     assert(km.bindings[3].drag_group == 0);
 }
 
+static void test_joystick(void) {
+    struct sc_keymap km;
+    const char *text =
+        "joystick 0 100 120 -80 12 72 26 7 22 0\n"
+        "key 44 50 50 0 0 Space\n"
+        "joystick 50 50 0 0 0 40 0 0 0 0\n"
+        "key 26 0 0 0 0\n"
+        "joystick 0 0 0 0 10 10 4 0 0 0\n"
+        "joystick 0 0 0 0 0 10 4 0 4 0\n"
+        "joystick 0 0 0 0 0 10 44 0 0 0\n";
+    assert(parse(&km, text) == 4);
+    assert(km.count == 3);
+    assert(km.bindings[0].deadzone_dp == 12 && km.bindings[0].range_dp == 72);
+    assert(km.bindings[0].start.offset_y == -80);
+    assert(km.bindings[2].deadzone_dp == 0 && km.bindings[2].range_dp == 40);
+    assert(sc_keymap_find(&km, 26) == 0);
+    assert(sc_keymap_find(&km, 7) == 0);
+    assert(sc_keymap_find(&km, 22) == 0);
+    assert(sc_keymap_find(&km, 0) == -1);
+    assert(sc_keymap_find(&km, 44) == 1);
+}
+
 static void test_limit(void) {
     struct sc_keymap km;
     char text[8192] = "";
@@ -148,6 +170,7 @@ int main(void) {
     test_parse();
     test_drag();
     test_drag_groups();
+    test_joystick();
     test_limit();
     test_point();
     test_dpi();
