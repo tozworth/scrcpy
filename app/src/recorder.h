@@ -34,6 +34,7 @@ struct sc_recorder {
      */
     bool audio;
     bool video;
+    bool live;
 
     enum sc_orientation orientation;
 
@@ -64,6 +65,7 @@ struct sc_recorder {
 };
 
 struct sc_recorder_callbacks {
+    void (*on_started)(void *userdata);
     void (*on_ended)(struct sc_recorder *recorder, bool success,
                      void *userdata);
 };

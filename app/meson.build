@@ -87,6 +87,8 @@ if host_machine.system() == 'windows'
     src += [
         'src/util/command.c',
         'src/sys/win/file.c',
+        'src/sys/win/audio_relay.c',
+        'src/sys/win/live_recording.c',
         'src/sys/win/process.c',
         'src/sys/win/session_caption.c',
         windows.compile_resources('scrcpy-windows.rc'),

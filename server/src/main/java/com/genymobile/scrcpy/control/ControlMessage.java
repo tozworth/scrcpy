@@ -33,6 +33,7 @@ public final class ControlMessage {
     public static final int TYPE_SCAN_FILE = 22;
     // appcpy: pause or resume video capture and encoding
     public static final int TYPE_SET_VIDEO_PAUSED = 200;
+    public static final int TYPE_REQUEST_VIDEO_KEYFRAME = 201;
 
     public static final long SEQUENCE_INVALID = 0;
 

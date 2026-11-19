@@ -79,7 +79,8 @@ sc_recorder_get_format_name(enum sc_record_format format) {
 
 static bool
 sc_recorder_set_extradata(AVStream *ostream, const AVPacket *packet) {
-    uint8_t *extradata = av_malloc(packet->size * sizeof(uint8_t));
+    uint8_t *extradata =
+        av_mallocz((size_t) packet->size + AV_INPUT_BUFFER_PADDING_SIZE);
     if (!extradata) {
         LOG_OOM();
         return false;
@@ -127,23 +128,8 @@ sc_recorder_write_audio(struct sc_recorder *recorder, AVPacket *packet) {
 
 static bool
 sc_recorder_open_output_file(struct sc_recorder *recorder) {
-    const char *format_name = sc_recorder_get_format_name(recorder->format);
-    assert(format_name);
-    const AVOutputFormat *format = find_muxer(format_name);
-    if (!format) {
-        LOGE("Could not find muxer");
-        return false;
-    }
-
-    recorder->ctx = avformat_alloc_context();
-    if (!recorder->ctx) {
-        LOG_OOM();
-        return false;
-    }
-
     char *file_url = sc_str_concat("file:", recorder->filename);
     if (!file_url) {
-        avformat_free_context(recorder->ctx);
         return false;
     }
 
@@ -151,23 +137,15 @@ sc_recorder_open_output_file(struct sc_recorder *recorder) {
     free(file_url);
     if (ret < 0) {
         LOGE("Failed to open output file: %s", recorder->filename);
-        avformat_free_context(recorder->ctx);
         return false;
     }
-
-    recorder->ctx->oformat = format;
 
     av_dict_set(&recorder->ctx->metadata, "comment",
                 "Recorded by scrcpy " SCRCPY_VERSION, 0);
 
-    LOGI("Recording started to %s file: %s", format_name, recorder->filename);
+    LOGI("Recording started to %s file: %s",
+         sc_recorder_get_format_name(recorder->format), recorder->filename);
     return true;
-}
-
-static void
-sc_recorder_close_output_file(struct sc_recorder *recorder) {
-    avio_close(recorder->ctx->pb);
-    avformat_free_context(recorder->ctx);
 }
 
 static inline bool
@@ -283,6 +261,9 @@ sc_recorder_process_packets(struct sc_recorder *recorder) {
     if (!header_written) {
         return false;
     }
+    if (recorder->cbs->on_started) {
+        recorder->cbs->on_started(recorder->cbs_userdata);
+    }
 
     AVPacket *video_pkt = NULL;
     AVPacket *audio_pkt = NULL;
@@ -356,7 +337,7 @@ sc_recorder_process_packets(struct sc_recorder *recorder) {
         }
 
         if (pts_origin == AV_NOPTS_VALUE) {
-            if (!recorder->audio && video_pkt) {
+            if ((!recorder->audio || recorder->live) && video_pkt) {
                 pts_origin = video_pkt->pts;
             } else if (!recorder->video && audio_pkt) {
                 pts_origin = audio_pkt->pts;
@@ -385,7 +366,17 @@ sc_recorder_process_packets(struct sc_recorder *recorder) {
             video_pkt->pts -= pts_origin;
             video_pkt->dts = video_pkt->pts;
 
-            if (video_pkt_previous) {
+            if (recorder->live) {
+                // Sparse capture can leave video idle for much longer than
+                // the muxer's interleave window while audio keeps flowing.
+                bool ok = sc_recorder_write_video(recorder, video_pkt);
+                av_packet_free(&video_pkt);
+                if (!ok) {
+                    LOGE("Could not record video packet");
+                    error = true;
+                    goto end;
+                }
+            } else if (video_pkt_previous) {
                 // we now know the duration of the previous packet
                 video_pkt_previous->duration = video_pkt->pts
                                              - video_pkt_previous->pts;
@@ -404,6 +395,10 @@ sc_recorder_process_packets(struct sc_recorder *recorder) {
         }
 
         if (audio_pkt) {
+            if (recorder->live && audio_pkt->pts < pts_origin) {
+                av_packet_free(&audio_pkt);
+                continue;
+            }
             audio_pkt->pts -= pts_origin;
             audio_pkt->dts = audio_pkt->pts;
 
@@ -459,8 +454,8 @@ sc_recorder_record(struct sc_recorder *recorder) {
     }
 
     ok = sc_recorder_process_packets(recorder);
-    sc_recorder_close_output_file(recorder);
-    return ok;
+    int ret = avio_closep(&recorder->ctx->pb);
+    return ok && ret >= 0;
 }
 
 static int
@@ -613,6 +608,11 @@ sc_recorder_video_packet_sink_push(struct sc_packet_sink *sink,
         return SC_SINK_STOPPED;
     }
 
+    if (recorder->live && sc_vecdeque_size(&recorder->video_queue) >= 256) {
+        sc_mutex_unlock(&recorder->mutex);
+        LOGE("Recording could not write video fast enough");
+        return SC_SINK_KO;
+    }
     AVPacket *rec = sc_recorder_packet_ref(packet);
     if (!rec) {
         sc_mutex_unlock(&recorder->mutex);
@@ -703,6 +703,11 @@ sc_recorder_audio_packet_sink_push(struct sc_packet_sink *sink,
         return SC_SINK_STOPPED;
     }
 
+    if (recorder->live && sc_vecdeque_size(&recorder->audio_queue) >= 512) {
+        sc_mutex_unlock(&recorder->mutex);
+        LOGE("Recording could not write audio fast enough");
+        return SC_SINK_KO;
+    }
     AVPacket *rec = sc_recorder_packet_ref(packet);
     if (!rec) {
         sc_mutex_unlock(&recorder->mutex);
@@ -753,6 +758,13 @@ sc_recorder_init(struct sc_recorder *recorder, const char *filename,
                  enum sc_orientation orientation,
                  const struct sc_recorder_callbacks *cbs, void *cbs_userdata) {
     assert(!sc_orientation_is_mirror(orientation));
+    const char *format_name = sc_recorder_get_format_name(format);
+    assert(format_name);
+    const AVOutputFormat *oformat = find_muxer(format_name);
+    if (!oformat) {
+        LOGE("Could not find muxer");
+        return false;
+    }
 
     recorder->filename = strdup(filename);
     if (!recorder->filename) {
@@ -770,9 +782,18 @@ sc_recorder_init(struct sc_recorder *recorder, const char *filename,
         goto error_mutex_destroy;
     }
 
+    recorder->ctx = avformat_alloc_context();
+    if (!recorder->ctx) {
+        LOG_OOM();
+        sc_cond_destroy(&recorder->cond);
+        goto error_mutex_destroy;
+    }
+    recorder->ctx->oformat = oformat;
+
     assert(video || audio);
     recorder->video = video;
     recorder->audio = audio;
+    recorder->live = false;
 
     recorder->orientation = orientation;
 
@@ -853,9 +874,12 @@ sc_recorder_join(struct sc_recorder *recorder) {
 
 void
 sc_recorder_destroy(struct sc_recorder *recorder) {
+    sc_recorder_queue_clear(&recorder->video_queue);
+    sc_recorder_queue_clear(&recorder->audio_queue);
     sc_vecdeque_destroy(&recorder->video_queue);
     sc_vecdeque_destroy(&recorder->audio_queue);
     sc_cond_destroy(&recorder->cond);
     sc_mutex_destroy(&recorder->mutex);
+    avformat_free_context(recorder->ctx);
     free(recorder->filename);
 }

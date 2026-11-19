@@ -104,6 +104,19 @@ public class CaptureControl {
         notifyAll();
     }
 
+    public synchronized void requestKeyFrame() {
+        if (runningMediaCodec == null || paused || reset != 0) {
+            return;
+        }
+        Bundle params = new Bundle();
+        params.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0);
+        try {
+            runningMediaCodec.setParameters(params);
+        } catch (RuntimeException e) {
+            Ln.w("Could not request a video keyframe: " + e.getMessage());
+        }
+    }
+
     private boolean setInputSuspended(boolean suspended, boolean requestKeyFrame) {
         try {
             Bundle params = new Bundle();

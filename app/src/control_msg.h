@@ -53,6 +53,7 @@ enum sc_control_msg_type {
     SC_CONTROL_MSG_TYPE_SCAN_FILE,
     // appcpy: pause or resume video capture and encoding on the device
     SC_CONTROL_MSG_TYPE_SET_VIDEO_PAUSED = 200,
+    SC_CONTROL_MSG_TYPE_REQUEST_VIDEO_KEYFRAME = 201,
 };
 
 enum sc_copy_key {

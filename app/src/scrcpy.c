@@ -29,6 +29,9 @@
 #include "screen.h"
 #include "sdl_hints.h"
 #include "server.h"
+#ifdef _WIN32
+# include "sys/win/live_recording.h"
+#endif
 #include "uhid/gamepad_uhid.h"
 #include "uhid/keyboard_uhid.h"
 #include "uhid/mouse_uhid.h"
@@ -63,6 +66,10 @@ struct scrcpy {
     struct sc_decoder audio_decoder;
     struct sc_hwdec hwdec;
     struct sc_recorder recorder;
+#ifdef _WIN32
+    struct sc_live_recording live_recording;
+    struct sc_audio_relay_publisher audio_relay;
+#endif
     struct sc_video_regulator video_regulator;
 #ifdef HAVE_V4L2
     struct sc_v4l2_sink v4l2_sink;
@@ -410,6 +417,9 @@ scrcpy(struct scrcpy_options *options) {
     bool file_pusher_initialized = false;
     bool recorder_initialized = false;
     bool recorder_started = false;
+#ifdef _WIN32
+    bool live_recording_initialized = false;
+#endif
 #ifdef HAVE_V4L2
     bool v4l2_sink_initialized = false;
     bool v4l2_regulator_initialized = false;
@@ -989,6 +999,28 @@ aoa_complete:
     }
 #endif
 
+#ifdef _WIN32
+    const char *audio_relay_name = SDL_getenv("APPCPY_AUDIO_RELAY");
+    if (options->audio && !options->video && audio_relay_name) {
+        sc_audio_relay_publisher_init(&s->audio_relay, audio_relay_name);
+        sc_packet_source_add_sink(&s->audio_demuxer.packet_source,
+                                  &s->audio_relay.sink);
+    }
+    if (options->video && options->window && SDL_getenv("APPCPY_RECORDING")) {
+        live_recording_initialized =
+            sc_live_recording_init(&s->live_recording, controller,
+                                   audio_relay_name, options->record_orientation);
+        if (live_recording_initialized) {
+            sc_packet_source_add_sink(&s->video_demuxer.packet_source,
+                                      &s->live_recording.sink);
+            puts("APPCPY_RECORDING ready");
+            fflush(stdout);
+        } else {
+            LOGW("Could not initialize Appcpy recording controls");
+        }
+    }
+#endif
+
     // Now that the header values have been consumed, the socket(s) will
     // receive the stream(s). Start the demuxer(s).
 
@@ -1072,6 +1104,11 @@ aoa_complete:
     disconnected = ret == SCRCPY_EXIT_DISCONNECTED;
 
 end:
+#ifdef _WIN32
+    if (live_recording_initialized) {
+        sc_live_recording_stop(&s->live_recording);
+    }
+#endif
     if (timeout_started) {
         sc_timeout_stop(&s->timeout);
     }
@@ -1151,6 +1188,11 @@ end:
     if (audio_demuxer_started) {
         sc_demuxer_join(&s->audio_demuxer);
     }
+#ifdef _WIN32
+    if (live_recording_initialized) {
+        sc_live_recording_destroy(&s->live_recording);
+    }
+#endif
 
     if (video_regulator_initialized) {
         sc_video_regulator_destroy(&s->video_regulator);

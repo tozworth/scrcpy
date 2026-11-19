@@ -340,6 +340,11 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
             case ControlMessage.TYPE_RESET_VIDEO:
                 resetVideo();
                 return true;
+            case ControlMessage.TYPE_REQUEST_VIDEO_KEYFRAME:
+                if (surfaceCapture != null) {
+                    surfaceCapture.getCaptureControl().requestKeyFrame();
+                }
+                return true;
             case ControlMessage.TYPE_SET_VIDEO_PAUSED:
                 setVideoPaused(msg.getAction());
                 return true;
