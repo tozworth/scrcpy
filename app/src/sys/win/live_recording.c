@@ -1,5 +1,6 @@
 #include "live_recording.h"
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,6 +96,25 @@ publish_file(const char *source, const char *destination) {
     return ok;
 }
 
+static int64_t
+read_duration_ms(const char *filename, sc_tick elapsed) {
+    int64_t duration = SC_TICK_TO_MS(elapsed);
+    char *url = sc_str_concat("file:", filename);
+    if (url) {
+        // The finalized Matroska header contains the duration in AV_TIME_BASE
+        // units. Reading the header avoids decoding or scanning the recording.
+        AVFormatContext *input = NULL;
+        if (avformat_open_input(&input, url, NULL, NULL) >= 0) {
+            if (input->duration >= 0) {
+                duration = av_rescale(input->duration, 1000, AV_TIME_BASE);
+            }
+            avformat_close_input(&input);
+        }
+        free(url);
+    }
+    return duration;
+}
+
 static void
 finish_recording(struct sc_live_recording *live, const char *inactive_status) {
     sc_mutex_lock(&live->mutex);
@@ -112,9 +132,11 @@ finish_recording(struct sc_live_recording *live, const char *inactive_status) {
     }
 
     const char *status = inactive_status;
+    int64_t duration_ms = -1;
     if (muxing) {
         sc_recorder_stop(&live->muxer);
         sc_recorder_join(&live->muxer);
+        sc_tick elapsed = live->muxer.live_stopped_at - live->muxer.live_started_at;
         sc_recorder_destroy(&live->muxer);
         if (live->audio.buffer) {
             sc_audio_relay_close(&live->audio);
@@ -125,6 +147,9 @@ finish_recording(struct sc_live_recording *live, const char *inactive_status) {
             bool saved = publish_file(live->partial, filename);
             status = !saved ? "failed" : resized ? "resized"
                    : packet_error ? "interrupted" : "saved";
+            if (saved) {
+                duration_ms = read_duration_ms(filename, MAX(0, elapsed));
+            }
         } else {
             status = "failed";
         }
@@ -134,7 +159,12 @@ finish_recording(struct sc_live_recording *live, const char *inactive_status) {
     free(filename);
     free(live->partial);
     live->partial = NULL;
-    publish_status(status);
+    if (duration_ms >= 0) {
+        printf("APPCPY_RECORDING %s %" PRIi64 "\n", status, duration_ms);
+        fflush(stdout);
+    } else {
+        publish_status(status);
+    }
 }
 
 static void
