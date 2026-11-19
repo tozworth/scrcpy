@@ -11,6 +11,7 @@ struct sc_audio_relay_buffer;
 
 struct sc_audio_relay {
     HANDLE mutex;
+    HANDLE mapping;
     struct sc_audio_relay_buffer *buffer;
     uint64_t generation;
     uint64_t next_packet;

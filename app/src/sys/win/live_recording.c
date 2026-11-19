@@ -370,7 +370,7 @@ sc_live_recording_init(struct sc_live_recording *live,
     live->video_config = av_packet_alloc();
     if (live->quit && live->video_params && live->video_config
             && sc_thread_create(&live->thread, recording_commands,
-                                "appcpy-recording", live)) {
+                                "appcpy-record", live)) {
         return true;
     }
 

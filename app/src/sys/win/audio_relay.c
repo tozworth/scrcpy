@@ -56,19 +56,22 @@ open_relay(struct sc_audio_relay *relay, const char *name, bool writer) {
         return false;
     }
     void *buffer = MapViewOfFile(mapping, access, 0, 0, size);
-    CloseHandle(mapping);
     if (!buffer) {
+        CloseHandle(mapping);
         CloseHandle(mutex);
         return false;
     }
 
-    *relay = (struct sc_audio_relay) { .mutex = mutex, .buffer = buffer };
+    *relay = (struct sc_audio_relay) {
+        .mutex = mutex, .mapping = mapping, .buffer = buffer,
+    };
     return true;
 }
 
 void
 sc_audio_relay_close(struct sc_audio_relay *relay) {
     UnmapViewOfFile(relay->buffer);
+    CloseHandle(relay->mapping);
     CloseHandle(relay->mutex);
     relay->buffer = NULL;
 }
