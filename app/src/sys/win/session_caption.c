@@ -254,6 +254,16 @@ owner_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
         return !caption->screen->disconnected
             && SDL_SetWindowAlwaysOnTop(caption->screen->window, wparam != 0);
     }
+    if (message == WM_WINDOWPOSCHANGING) {
+        WINDOWPOS *pos = (WINDOWPOS *) lparam;
+        // SDL raises pinned windows on mouse entry, which can cover the deck
+        // while the pointer crosses the gap below the caption button.
+        if (pos->hwndInsertAfter == HWND_TOPMOST
+                && (pos->flags & (SWP_NOACTIVATE | SWP_NOZORDER)) == SWP_NOACTIVATE
+                && (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST)) {
+            pos->flags |= SWP_NOZORDER;
+        }
+    }
     LRESULT result = DefSubclassProc(hwnd, message, wparam, lparam);
     switch (message) {
         case WM_WINDOWPOSCHANGED:
