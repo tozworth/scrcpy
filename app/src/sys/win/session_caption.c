@@ -14,6 +14,10 @@
 #ifndef WM_DPICHANGED
 # define WM_DPICHANGED 0x02E0
 #endif
+#ifndef WM_POINTERDOWN
+# define WM_NCPOINTERDOWN 0x0242
+# define WM_POINTERDOWN 0x0246
+#endif
 
 struct sc_session_caption {
     struct sc_screen *screen;
