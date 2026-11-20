@@ -128,6 +128,11 @@ struct sc_screen {
 bool
 sc_screen_set_manual_video_pause(struct sc_screen *screen, bool paused);
 
+#ifdef _WIN32
+bool
+sc_screen_save_screenshot(struct sc_screen *screen, const char *filename);
+#endif
+
 struct sc_screen_params {
     bool video;
     bool camera;

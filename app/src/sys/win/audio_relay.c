@@ -96,7 +96,8 @@ copy_packet(AVPacket *dst, const struct sc_audio_relay_packet *src) {
 
 bool
 sc_audio_relay_subscribe(struct sc_audio_relay *relay, const char *name,
-                         AVCodecParameters *params, AVPacket *config) {
+                         AVCodecParameters *params, AVPacket *config,
+                         bool include_buffered) {
     if (!name || !open_relay(relay, name, false)) {
         return false;
     }
@@ -115,8 +116,8 @@ sc_audio_relay_subscribe(struct sc_audio_relay *relay, const char *name,
             relay->generation = buffer->generation;
             // Include audio packets that reached this PC before the first
             // video keyframe. The muxer drops packets older than that frame.
-            relay->next_packet = buffer->written
-                               - MIN(buffer->written, SC_AUDIO_RELAY_SLOTS);
+            unsigned history = include_buffered ? SC_AUDIO_RELAY_SLOTS : 1;
+            relay->next_packet = buffer->written - MIN(buffer->written, history);
         }
     }
     if (wait == WAIT_OBJECT_0 || wait == WAIT_ABANDONED) {

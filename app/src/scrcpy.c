@@ -168,6 +168,11 @@ event_loop(struct scrcpy *s, bool has_screen) {
             case SC_EVENT_TIME_LIMIT_REACHED:
                 LOGI("Time limit reached");
                 return SCRCPY_EXIT_SUCCESS;
+#ifdef _WIN32
+            case SC_EVENT_APPCPY_SCREENSHOT:
+                sc_live_recording_screenshot(event.user.data1, &s->screen);
+                break;
+#endif
             case SDL_EVENT_QUIT:
                 LOGD("User requested to quit");
                 return SCRCPY_EXIT_SUCCESS;

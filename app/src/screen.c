@@ -287,8 +287,9 @@ sc_screen_update_content_rect(struct sc_screen *screen) {
 //
 // Set the update_content_rect flag if the window or content size may have
 // changed, so that the content rectangle is recomputed
-static void
-sc_screen_render(struct sc_screen *screen, bool update_content_rect) {
+static SDL_Surface *
+sc_screen_render_internal(struct sc_screen *screen, bool update_content_rect,
+                          bool capture) {
     assert(screen->window_shown);
 
     if (update_content_rect) {
@@ -296,6 +297,7 @@ sc_screen_render(struct sc_screen *screen, bool update_content_rect) {
     }
 
     SDL_Renderer *renderer = screen->renderer;
+    SDL_Surface *screenshot = NULL;
     struct sc_screen_bg_color bg = screen->bg;
     SDL_SetRenderDrawColor(renderer, bg.r, bg.g, bg.b, 0);
     sc_sdl_render_clear(renderer);
@@ -376,11 +378,43 @@ sc_screen_render(struct sc_screen *screen, bool update_content_rect) {
 
     if (!ok) {
         LOGE("Could not render texture: %s", SDL_GetError());
+    } else if (capture) {
+        SDL_Rect rect = {
+            .x = (int) geometry.x,
+            .y = (int) geometry.y,
+            .w = (int) geometry.w,
+            .h = (int) geometry.h,
+        };
+        screenshot = SDL_RenderReadPixels(renderer, &rect);
     }
 
 end:
     sc_sdl_render_present(renderer);
+    return screenshot;
 }
+
+static void
+sc_screen_render(struct sc_screen *screen, bool update_content_rect) {
+    sc_screen_render_internal(screen, update_content_rect, false);
+}
+
+#ifdef _WIN32
+bool
+sc_screen_save_screenshot(struct sc_screen *screen, const char *filename) {
+    if (!screen->window_shown || screen->is_icon_active || screen->disconnected
+            || !screen->frame_size.width || !screen->frame_size.height) {
+        return false;
+    }
+
+    SDL_Surface *screenshot = sc_screen_render_internal(screen, true, true);
+    bool saved = screenshot && SDL_SavePNG(screenshot, filename);
+    if (!saved) {
+        LOGE("Could not save screenshot: %s", SDL_GetError());
+    }
+    SDL_DestroySurface(screenshot);
+    return saved;
+}
+#endif
 
 static void
 sc_screen_request_resize_display(struct sc_screen *screen, uint16_t width,

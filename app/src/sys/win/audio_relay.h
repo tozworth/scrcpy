@@ -29,7 +29,8 @@ sc_audio_relay_publisher_init(struct sc_audio_relay_publisher *publisher,
 
 bool
 sc_audio_relay_subscribe(struct sc_audio_relay *relay, const char *name,
-                         AVCodecParameters *params, AVPacket *config);
+                         AVCodecParameters *params, AVPacket *config,
+                         bool include_buffered);
 
 // Returns 1 for a packet, 0 if caught up or busy, -1 if the source was lost.
 int

@@ -6,6 +6,8 @@
 #include <string.h>
 
 #include "controller.h"
+#include "events.h"
+#include "screen.h"
 #include "util/log.h"
 #include "util/str.h"
 
@@ -22,7 +24,9 @@ publish_status(const char *status) {
 static void
 muxer_started(void *userdata) {
     struct sc_live_recording *live = userdata;
-    publish_status(live->with_audio ? "active" : "video-only");
+    bool missing_audio = live->mode == SC_LIVE_RECORD_COMBINED
+                      && !live->muxer.audio;
+    publish_status(missing_audio ? "video-only" : "active");
 }
 
 static void
@@ -37,50 +41,94 @@ needs_video_config(enum AVCodecID codec) {
     return codec != AV_CODEC_ID_VP8 && codec != AV_CODEC_ID_VP9;
 }
 
-static bool
+static const char *
 start_muxer(struct sc_live_recording *live, const AVPacket *keyframe) {
     static const struct sc_recorder_callbacks callbacks = {
         .on_started = muxer_started,
         .on_ended = muxer_ended,
     };
-    AVCodecParameters *audio_params = avcodec_parameters_alloc();
-    AVPacket *audio_config = av_packet_alloc();
-    live->with_audio = audio_params && audio_config
+    bool video = keyframe != NULL;
+    bool want_audio = live->mode != SC_LIVE_RECORD_VIDEO;
+    AVCodecParameters *audio_params =
+        want_audio ? avcodec_parameters_alloc() : NULL;
+    AVPacket *audio_config = want_audio ? av_packet_alloc() : NULL;
+    bool with_audio = audio_params && audio_config
         && sc_audio_relay_subscribe(&live->audio, live->audio_name,
-                                     audio_params, audio_config);
+                                     audio_params, audio_config, video);
+    const char *failure = "failed";
+    const char *extension = NULL;
+    enum sc_record_format format = SC_RECORD_FORMAT_MKV;
+    if (!video) {
+        if (!with_audio) {
+            failure = "audio-unavailable";
+            goto end;
+        }
+        switch (audio_params->codec_id) {
+            case AV_CODEC_ID_OPUS:
+                format = SC_RECORD_FORMAT_OPUS;
+                extension = ".opus";
+                break;
+            case AV_CODEC_ID_AAC:
+                format = SC_RECORD_FORMAT_M4A;
+                extension = ".m4a";
+                break;
+            case AV_CODEC_ID_FLAC:
+                format = SC_RECORD_FORMAT_FLAC;
+                extension = ".flac";
+                break;
+            case AV_CODEC_ID_PCM_S16LE:
+                format = SC_RECORD_FORMAT_WAV;
+                extension = ".wav";
+                break;
+            default:
+                goto end;
+        }
+        char *filename = sc_str_concat(live->filename, extension);
+        if (!filename) {
+            goto end;
+        }
+        free(live->filename);
+        live->filename = filename;
+        printf("APPCPY_RECORDING audio-extension %s\n", extension);
+        fflush(stdout);
+    }
+
     struct sc_recorder *muxer = &live->muxer;
     bool initialized = sc_recorder_init(muxer, live->partial,
-                                        SC_RECORD_FORMAT_MKV, true,
-                                        live->with_audio, live->orientation,
+                                        format, video, with_audio, live->orientation,
                                         &callbacks, live);
-    bool ok = false;
     if (initialized) {
         muxer->live = true;
         muxer->live_started_at = sc_tick_now();
-        struct sc_packet_sink *video = &muxer->video_packet_sink;
+        struct sc_packet_sink *video_sink = &muxer->video_packet_sink;
         struct sc_packet_sink *audio = &muxer->audio_packet_sink;
-        ok = video->ops->open(video, live->video_params, NULL)
-          && (!needs_video_config(live->video_params->codec_id)
-              || video->ops->push(video, live->video_config) == SC_SINK_OK)
-          && video->ops->push(video, keyframe) == SC_SINK_OK
-          && (!live->with_audio
+        bool ok = (!video
+              || (video_sink->ops->open(video_sink, live->video_params, NULL)
+                  && (!needs_video_config(live->video_params->codec_id)
+                      || video_sink->ops->push(video_sink, live->video_config)
+                          == SC_SINK_OK)
+                  && video_sink->ops->push(video_sink, keyframe) == SC_SINK_OK))
+          && (!with_audio
               || (audio->ops->open(audio, audio_params, NULL)
                   && (!audio_config->size
                       || audio->ops->push(audio, audio_config) == SC_SINK_OK)))
           && sc_recorder_start(muxer);
-        if (!ok) {
+        if (ok) {
+            live->first_video_pts = video ? keyframe->pts : INT64_MIN;
+            live->muxing = true;
+            failure = NULL;
+        } else {
             sc_recorder_destroy(muxer);
         }
     }
+
+end:
     avcodec_parameters_free(&audio_params);
     av_packet_free(&audio_config);
-    if (ok) {
-        live->first_video_pts = keyframe->pts;
-        live->muxing = true;
-    } else if (live->audio.buffer) {
+    if (failure && live->audio.buffer) {
         sc_audio_relay_close(&live->audio);
     }
-    return ok;
+    return failure;
 }
 
 static bool
@@ -94,6 +142,15 @@ publish_file(const char *source, const char *destination) {
     free(partial);
     free(filename);
     return ok;
+}
+
+static void
+remove_partial_file(const char *filename) {
+    wchar_t *path = sc_str_to_wchars(filename);
+    if (path) {
+        DeleteFileW(path);
+        free(path);
+    }
 }
 
 static void
@@ -122,7 +179,10 @@ finish_recording(struct sc_live_recording *live, const char *inactive_status) {
         if (live->audio.buffer) {
             sc_audio_relay_close(&live->audio);
         }
-        if (atomic_load(&live->muxer_result) == 1) {
+        if (live->mode == SC_LIVE_RECORD_AUDIO && !live->audio_queued) {
+            remove_partial_file(live->partial);
+            status = "failed";
+        } else if (atomic_load(&live->muxer_result) == 1) {
             // Use an atomic rename in the same directory so the final path
             // appears only after the trailer is written, and never overwrite.
             bool saved = publish_file(live->partial, filename);
@@ -149,6 +209,40 @@ finish_recording(struct sc_live_recording *live, const char *inactive_status) {
 }
 
 static void
+request_screenshot(struct sc_live_recording *live, const char *path) {
+    sc_mutex_lock(&live->mutex);
+    if (!live->screenshot) {
+        live->screenshot = strdup(path);
+        if (!live->screenshot
+                || !sc_push_event_with_data(SC_EVENT_APPCPY_SCREENSHOT, live)) {
+            free(live->screenshot);
+            live->screenshot = NULL;
+            publish_status("screenshot-failed");
+        }
+    }
+    sc_mutex_unlock(&live->mutex);
+}
+
+void
+sc_live_recording_screenshot(struct sc_live_recording *live,
+                             struct sc_screen *screen) {
+    sc_mutex_lock(&live->mutex);
+    char *filename = live->screenshot;
+    live->screenshot = NULL;
+    sc_mutex_unlock(&live->mutex);
+
+    char *partial = sc_str_concat(filename, ".partial");
+    bool saved = partial && sc_screen_save_screenshot(screen, partial)
+              && publish_file(partial, filename);
+    if (!saved && partial) {
+        remove_partial_file(partial);
+    }
+    free(partial);
+    free(filename);
+    publish_status(saved ? "screenshot-saved" : "screenshot-failed");
+}
+
+static void
 request_keyframe(struct sc_live_recording *live, bool restart) {
     if (live->controller) {
         struct sc_control_msg msg = {
@@ -165,7 +259,26 @@ handle_command(struct sc_live_recording *live, const char *command) {
         finish_recording(live, "canceled");
         return false;
     }
-    if (strncmp(command, "record ", 7) || !command[7]) {
+    if (!strncmp(command, "screenshot ", 11) && command[11]) {
+        request_screenshot(live, command + 11);
+        return false;
+    }
+
+    enum sc_live_recording_mode mode;
+    const char *filename;
+    if (!strncmp(command, "record ", 7)) {
+        mode = SC_LIVE_RECORD_COMBINED;
+        filename = command + 7;
+    } else if (!strncmp(command, "record-video ", 13)) {
+        mode = SC_LIVE_RECORD_VIDEO;
+        filename = command + 13;
+    } else if (!strncmp(command, "record-audio ", 13)) {
+        mode = SC_LIVE_RECORD_AUDIO;
+        filename = command + 13;
+    } else {
+        return false;
+    }
+    if (!*filename) {
         return false;
     }
 
@@ -174,7 +287,6 @@ handle_command(struct sc_live_recording *live, const char *command) {
         sc_mutex_unlock(&live->mutex);
         return false;
     }
-    const char *filename = command + 7;
     char *path = strdup(filename);
     char *partial = sc_str_concat(filename, ".partial");
     if (!path || !partial) {
@@ -186,10 +298,20 @@ handle_command(struct sc_live_recording *live, const char *command) {
     }
     live->filename = path;
     live->partial = partial;
+    live->mode = mode;
     live->resized = false;
     live->packet_error = false;
+    live->audio_queued = false;
     atomic_store(&live->muxer_result, 0);
+    const char *failure =
+        mode == SC_LIVE_RECORD_AUDIO ? start_muxer(live, NULL) : NULL;
     sc_mutex_unlock(&live->mutex);
+    if (mode == SC_LIVE_RECORD_AUDIO) {
+        if (failure) {
+            finish_recording(live, failure);
+        }
+        return false;
+    }
     request_keyframe(live, false);
     return true;
 }
@@ -205,13 +327,22 @@ forward_audio(struct sc_live_recording *live) {
             break;
         }
         if (read < 0) {
-            sc_audio_relay_close(&live->audio);
-            publish_status("audio-ended");
+            if (live->mode == SC_LIVE_RECORD_AUDIO) {
+                sc_mutex_lock(&live->mutex);
+                live->packet_error = true;
+                sc_mutex_unlock(&live->mutex);
+            } else {
+                sc_audio_relay_close(&live->audio);
+                publish_status("audio-ended");
+            }
             break;
         }
         enum sc_sink_result result = SC_SINK_OK;
         if (packet.pts >= live->first_video_pts) {
             result = sink->ops->push(sink, &packet);
+            if (result == SC_SINK_OK) {
+                live->audio_queued = true;
+            }
         }
         av_packet_unref(&packet);
         if (result != SC_SINK_OK) {
@@ -323,7 +454,7 @@ video_session(struct sc_packet_sink *sink,
             || live->video_params->height != height) {
         // Matroska declares the dimensions once for the track. Finish the
         // current file before accepting samples from a different size.
-        live->resized = live->muxing;
+        live->resized = live->muxing && live->mode != SC_LIVE_RECORD_AUDIO;
         live->video_params->width = width;
         live->video_params->height = height;
     }
@@ -343,14 +474,15 @@ video_push(struct sc_packet_sink *sink, const AVPacket *packet) {
         av_packet_unref(live->video_config);
         av_packet_ref(live->video_config, packet);
     }
-    if (live->filename && !live->resized && !live->packet_error) {
+    if (live->filename && live->mode != SC_LIVE_RECORD_AUDIO
+            && !live->resized && !live->packet_error) {
         if (live->muxing) {
             struct sc_packet_sink *video = &live->muxer.video_packet_sink;
             live->packet_error = video->ops->push(video, packet) != SC_SINK_OK;
         } else if (!config && (packet->flags & AV_PKT_FLAG_KEY)
                 && live->video_open && (live->video_config->size
                     || !needs_video_config(live->video_params->codec_id))) {
-            live->packet_error = !start_muxer(live, packet);
+            live->packet_error = start_muxer(live, packet) != NULL;
         }
     }
     sc_mutex_unlock(&live->mutex);
@@ -404,6 +536,7 @@ sc_live_recording_stop(struct sc_live_recording *live) {
 void
 sc_live_recording_destroy(struct sc_live_recording *live) {
     sc_thread_join(&live->thread, NULL);
+    free(live->screenshot);
     CloseHandle(live->quit);
     avcodec_parameters_free(&live->video_params);
     av_packet_free(&live->video_config);
