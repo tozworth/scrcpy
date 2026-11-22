@@ -65,6 +65,7 @@ public class Options {
     private boolean powerOn = true;
 
     private NewDisplay newDisplay;
+    private int vdRefreshRate;
     private boolean vdDestroyContent = true;
     private boolean vdSystemDecorations = true;
     private int unpauseIntervalSeconds;
@@ -255,6 +256,10 @@ public class Options {
 
     public NewDisplay getNewDisplay() {
         return newDisplay;
+    }
+
+    public int getVdRefreshRate() {
+        return vdRefreshRate;
     }
 
     public Orientation getCaptureOrientation() {
@@ -553,6 +558,12 @@ public class Options {
                     break;
                 case "new_display":
                     options.newDisplay = parseNewDisplay(value);
+                    break;
+                case "vd_refresh_rate":
+                    options.vdRefreshRate = Integer.parseInt(value);
+                    if (options.vdRefreshRate < 0 || options.vdRefreshRate > 240) {
+                        throw new IllegalArgumentException("Virtual display refresh rate must be between 0 and 240 Hz");
+                    }
                     break;
                 case "vd_destroy_content":
                     options.vdDestroyContent = Boolean.parseBoolean(value);

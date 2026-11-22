@@ -384,6 +384,10 @@ Disable device control (mirror the device in read\-only).
 Disable video and audio playback on the computer (equivalent to \fB\-\-no\-video\-playback \-\-no\-audio\-playback\fR).
 
 .TP
+\fB\-\-vd\-refresh\-rate\fR=\fIhz\fR
+Request a refresh rate from 1 to 240 Hz for a new virtual display on Android 14 or newer. Android may use a different rate. Use 0 for the Android default.
+
+.TP
 \fB\-\-new\-display\fR[=[\fIwidth\fRx\fIheight\fR][/\fIdpi\fR]]
 Create a new display with the specified resolution and density. If not provided, they default to the main display dimensions and DPI.
 

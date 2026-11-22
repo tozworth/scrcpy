@@ -367,6 +367,7 @@ struct scrcpy_options {
     bool mouse_hover;
     bool audio_dup;
     const char *new_display; // [<width>x<height>][/<dpi>] parsed by the server
+    uint16_t vd_refresh_rate;
     const char *start_app;
     bool vd_destroy_content;
     bool vd_system_decorations;

@@ -69,6 +69,7 @@ public class NewDisplayCapture extends SurfaceCapture {
     private final float angle;
     private final boolean vdDestroyContent;
     private final boolean vdSystemDecorations;
+    private final int vdRefreshRate;
     private final boolean secureDisplay;
     private final boolean flexDisplay;
     private final int flexScaleNumerator;
@@ -105,6 +106,7 @@ public class NewDisplayCapture extends SurfaceCapture {
         this.angle = options.getAngle();
         this.vdDestroyContent = options.getVDDestroyContent();
         this.vdSystemDecorations = options.getVDSystemDecorations();
+        this.vdRefreshRate = options.getVdRefreshRate();
         this.secureDisplay = options.getSecureDisplay();
         this.flexDisplay = options.getFlexDisplay();
         int scale = options.getFlexDisplayScale();
@@ -266,7 +268,7 @@ public class NewDisplayCapture extends SurfaceCapture {
                 }
             }
             VirtualDisplay vd = ServiceManager.getDisplayManager()
-                    .createNewVirtualDisplay("scrcpy", displaySize.getWidth(), displaySize.getHeight(), dpi, surface, flags);
+                    .createNewVirtualDisplay("scrcpy", displaySize.getWidth(), displaySize.getHeight(), dpi, surface, flags, vdRefreshRate);
             setCurrentVirtualDisplay(vd); // used for client resize
             int virtualDisplayId = vd.getDisplay().getDisplayId();
             Ln.i("New display: " + displaySize.getWidth() + "x" + displaySize.getHeight() + "/" + dpi + " (id=" + virtualDisplayId + ")");

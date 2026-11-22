@@ -74,6 +74,7 @@ arguments=(
     '--no-terminal-title[Disable terminal title updates]'
     '--no-vd-destroy-content[Disable virtual display "destroy content on removal" flag]'
     '--no-vd-system-decorations[Disable virtual display system decorations flag]'
+    '--vd-refresh-rate=[Request the virtual display refresh rate on Android 14 or newer]:Hz'
     '--no-video[Disable video forwarding]'
     '--no-video-playback[Disable video playback]'
     '--no-window[Disable scrcpy window]'

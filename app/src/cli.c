@@ -95,6 +95,7 @@ enum {
     OPT_AUDIO_DUP,
     OPT_GAMEPAD,
     OPT_NEW_DISPLAY,
+    OPT_VD_REFRESH_RATE,
     OPT_LIST_APPS,
     OPT_START_APP,
     OPT_SCREEN_OFF_TIMEOUT,
@@ -703,6 +704,14 @@ static const struct sc_option options[] = {
                 "    --new-display=1920x1080/420  # force 420 dpi\n"
                 "    --new-display         # main display size and density\n"
                 "    --new-display=/240    # main display size and 240 dpi",
+    },
+    {
+        .longopt_id = OPT_VD_REFRESH_RATE,
+        .longopt = "vd-refresh-rate",
+        .argdesc = "hz",
+        .text = "Request a refresh rate for --new-display (Android 14+). "
+                "Use 0 for the Android default (default), or 1 to 240 Hz. "
+                "Android may use a different rate.",
     },
     {
         .longopt_id = OPT_NO_AUDIO,
@@ -3032,6 +3041,15 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                     return false;
                 }
                 break;
+            case OPT_VD_REFRESH_RATE: {
+                long rate;
+                if (!parse_integer_arg(optarg, &rate, false, 0, 240,
+                                       "virtual display refresh rate")) {
+                    return false;
+                }
+                opts->vd_refresh_rate = (uint16_t) rate;
+                break;
+            }
             case OPT_NEW_DISPLAY:
                 opts->new_display = optarg ? optarg : "";
                 break;
@@ -3332,6 +3350,11 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
             opts->mouse_bindings.pri = forward;
             opts->mouse_bindings.sec = default_shortcuts;
         }
+    }
+
+    if (opts->vd_refresh_rate && !opts->new_display) {
+        LOGE("--vd-refresh-rate requires --new-display");
+        return false;
     }
 
     if (opts->new_display) {

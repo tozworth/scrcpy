@@ -433,6 +433,9 @@ execute_server(struct sc_server *server,
     if (params->new_display) {
         VALIDATE_STRING(params->new_display);
         ADD_PARAM("new_display=%s", params->new_display);
+        if (params->vd_refresh_rate) {
+            ADD_PARAM("vd_refresh_rate=%" PRIu16, params->vd_refresh_rate);
+        }
     }
     if (params->flex_display) {
         ADD_PARAM("flex_display=true");

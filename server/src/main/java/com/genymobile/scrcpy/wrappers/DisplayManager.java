@@ -11,6 +11,8 @@ import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.hardware.display.VirtualDisplay;
+import android.hardware.display.VirtualDisplayConfig;
+import android.os.Build;
 import android.os.Handler;
 import android.view.Display;
 import android.view.Surface;
@@ -173,11 +175,23 @@ public final class DisplayManager {
         return (VirtualDisplay) method.invoke(null, name, width, height, displayIdToMirror, surface);
     }
 
-    public VirtualDisplay createNewVirtualDisplay(String name, int width, int height, int dpi, Surface surface, int flags) throws Exception {
+    public VirtualDisplay createNewVirtualDisplay(String name, int width, int height, int dpi, Surface surface, int flags, int refreshRate)
+            throws Exception {
         Constructor<android.hardware.display.DisplayManager> ctor = android.hardware.display.DisplayManager.class.getDeclaredConstructor(
                 Context.class);
         ctor.setAccessible(true);
         android.hardware.display.DisplayManager dm = ctor.newInstance(FakeContext.get());
+        if (refreshRate > 0) {
+            if (Build.VERSION.SDK_INT >= AndroidVersions.API_34_ANDROID_14) {
+                VirtualDisplayConfig config = new VirtualDisplayConfig.Builder(name, width, height, dpi)
+                        .setSurface(surface)
+                        .setFlags(flags)
+                        .setRequestedRefreshRate(refreshRate)
+                        .build();
+                return dm.createVirtualDisplay(config);
+            }
+            Ln.w("Virtual display refresh rate requests require Android 14 or newer; using the Android default");
+        }
         return dm.createVirtualDisplay(name, width, height, dpi, surface, flags);
     }
 

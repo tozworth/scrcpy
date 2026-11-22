@@ -68,6 +68,7 @@ _scrcpy() {
         --no-terminal-title
         --no-vd-destroy-content
         --no-vd-system-decorations
+        --vd-refresh-rate=
         --no-video
         --no-video-playback
         --no-window

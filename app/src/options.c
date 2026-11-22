@@ -116,6 +116,7 @@ const struct scrcpy_options scrcpy_options_default = {
     .mouse_hover = true,
     .audio_dup = false,
     .new_display = NULL,
+    .vd_refresh_rate = 0,
     .start_app = NULL,
     .angle = NULL,
     .vd_destroy_content = true,

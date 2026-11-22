@@ -310,6 +310,33 @@ static void test_pause_playback_on_close(void) {
     assert(!scrcpy_parse_args(&args, ARRAY_LEN(no_control), no_control));
 }
 
+static void test_vd_refresh_rate(void) {
+    struct scrcpy_cli_args args = {.opts = scrcpy_options_default};
+    assert(!args.opts.vd_refresh_rate);
+
+    char *argv[] = {"scrcpy", "--new-display", "--vd-refresh-rate=240"};
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(argv), argv));
+    assert(args.opts.vd_refresh_rate == 240);
+
+    char *reset[] = {"scrcpy", "--new-display", "--vd-refresh-rate=240",
+                     "--vd-refresh-rate=0"};
+    args.opts = scrcpy_options_default;
+    assert(scrcpy_parse_args(&args, ARRAY_LEN(reset), reset));
+    assert(!args.opts.vd_refresh_rate);
+
+    char *invalid[] = {"--vd-refresh-rate=-1", "--vd-refresh-rate=241",
+                       "--vd-refresh-rate=59.94"};
+    for (unsigned i = 0; i < ARRAY_LEN(invalid); ++i) {
+        args.opts = scrcpy_options_default;
+        argv[2] = invalid[i];
+        assert(!scrcpy_parse_args(&args, ARRAY_LEN(argv), argv));
+    }
+
+    args.opts = scrcpy_options_default;
+    char *no_display[] = {"scrcpy", "--vd-refresh-rate=120"};
+    assert(!scrcpy_parse_args(&args, ARRAY_LEN(no_display), no_display));
+}
+
 int main(int argc, char *argv[]) {
     (void) argc;
     (void) argv;
@@ -326,5 +353,6 @@ int main(int argc, char *argv[]) {
     test_unpause_while_minimized();
     test_secure_display_option();
     test_pause_playback_on_close();
+    test_vd_refresh_rate();
     return 0;
 }
