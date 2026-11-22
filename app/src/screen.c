@@ -287,9 +287,8 @@ sc_screen_update_content_rect(struct sc_screen *screen) {
 //
 // Set the update_content_rect flag if the window or content size may have
 // changed, so that the content rectangle is recomputed
-static SDL_Surface *
-sc_screen_render_internal(struct sc_screen *screen, bool update_content_rect,
-                          bool capture) {
+static void
+sc_screen_render(struct sc_screen *screen, bool update_content_rect) {
     assert(screen->window_shown);
 
     if (update_content_rect) {
@@ -297,7 +296,6 @@ sc_screen_render_internal(struct sc_screen *screen, bool update_content_rect,
     }
 
     SDL_Renderer *renderer = screen->renderer;
-    SDL_Surface *screenshot = NULL;
     struct sc_screen_bg_color bg = screen->bg;
     SDL_SetRenderDrawColor(renderer, bg.r, bg.g, bg.b, 0);
     sc_sdl_render_clear(renderer);
@@ -378,27 +376,46 @@ sc_screen_render_internal(struct sc_screen *screen, bool update_content_rect,
 
     if (!ok) {
         LOGE("Could not render texture: %s", SDL_GetError());
-    } else if (capture) {
-        SDL_Rect rect = {
-            .x = (int) geometry.x,
-            .y = (int) geometry.y,
-            .w = (int) geometry.w,
-            .h = (int) geometry.h,
-        };
-        screenshot = SDL_RenderReadPixels(renderer, &rect);
     }
 
 end:
     sc_sdl_render_present(renderer);
-    return screenshot;
-}
-
-static void
-sc_screen_render(struct sc_screen *screen, bool update_content_rect) {
-    sc_screen_render_internal(screen, update_content_rect, false);
 }
 
 #ifdef _WIN32
+static SDL_Surface *
+sc_screen_capture_frame(struct sc_screen *screen, SDL_Texture *texture) {
+    SDL_Renderer *renderer = screen->renderer;
+    // Hardware-decoded textures may be padded beyond the visible frame.
+    struct sc_size size = sc_texture_get_frame_size(&screen->tex);
+    SDL_Texture *target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+                                            SDL_TEXTUREACCESS_TARGET,
+                                            size.width, size.height);
+    if (!target) {
+        LOGE("Could not create screenshot target: %s", SDL_GetError());
+        return NULL;
+    }
+
+    SDL_Surface *frame = NULL;
+    SDL_Texture *previous_target = SDL_GetRenderTarget(renderer);
+    if (SDL_SetRenderTarget(renderer, target)) {
+        SDL_FRect source = {0, 0, size.width, size.height};
+        if (SDL_RenderTexture(renderer, texture, &source, NULL)) {
+            frame = SDL_RenderReadPixels(renderer, NULL);
+        }
+        if (!frame) {
+            LOGE("Could not capture screenshot frame: %s", SDL_GetError());
+        }
+    } else {
+        LOGE("Could not set screenshot target: %s", SDL_GetError());
+    }
+    if (!SDL_SetRenderTarget(renderer, previous_target)) {
+        LOGE("Could not restore render target: %s", SDL_GetError());
+    }
+    SDL_DestroyTexture(target);
+    return frame;
+}
+
 bool
 sc_screen_save_screenshot(struct sc_screen *screen, const char *filename) {
     if (!screen->window_shown || screen->is_icon_active || screen->disconnected
@@ -406,8 +423,26 @@ sc_screen_save_screenshot(struct sc_screen *screen, const char *filename) {
         return false;
     }
 
-    SDL_Surface *screenshot = sc_screen_render_internal(screen, true, true);
-    bool saved = screenshot && SDL_SavePNG(screenshot, filename);
+    SDL_Texture *texture = sc_texture_get(&screen->tex);
+    if (!texture) {
+        return false;
+    }
+    SDL_Surface *screenshot = sc_screen_capture_frame(screen, texture);
+    if (!screenshot) {
+        return false;
+    }
+
+    // Match the displayed orientation while keeping the frame at 1:1 pixels.
+    enum sc_orientation orientation = screen->orientation;
+    bool oriented = !sc_orientation_is_mirror(orientation)
+                 || SDL_FlipSurface(screenshot, SDL_FLIP_HORIZONTAL);
+    unsigned rotation = sc_orientation_get_rotation(orientation);
+    if (oriented && rotation) {
+        SDL_Surface *rotated = SDL_RotateSurface(screenshot, 90.f * rotation);
+        SDL_DestroySurface(screenshot);
+        screenshot = rotated;
+    }
+    bool saved = oriented && screenshot && SDL_SavePNG(screenshot, filename);
     if (!saved) {
         LOGE("Could not save screenshot: %s", SDL_GetError());
     }
