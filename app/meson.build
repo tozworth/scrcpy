@@ -286,6 +286,7 @@ if get_option('buildtype') != 'release'
             'src/util/term.c',
         ]],
         ['test_flex_scale', ['tests/test_flex_scale.c']],
+        ['test_video_pacing', ['tests/test_video_pacing.c']],
         ['test_keymap', ['tests/test_keymap.c', 'src/keymap.c']],
         ['test_adb_parser', [
             'tests/test_adb_parser.c',

@@ -49,7 +49,6 @@ run_buffering(void *data) {
 
     assert(vr->delay > 0);
 
-    sc_tick previous_pts = 0;
     for (;;) {
         sc_mutex_lock(&vr->mutex);
 
@@ -71,17 +70,15 @@ run_buffering(void *data) {
             // PTS (written by the server) are expressed in microseconds
             sc_tick pts = SC_TICK_FROM_US(dpacket.frame->pts);
 
-            // An isolated update does not need to match a cadence the source
-            // has already stopped producing.
-            bool continuous = previous_pts && pts > previous_pts
-                           && pts - previous_pts <= SC_TICK_FROM_MS(32);
-            previous_pts = pts;
-            bool timed_out = vr->sparse_frames_asap && !continuous;
+            bool timed_out = false;
             while (!vr->stopped && !timed_out) {
-                sc_tick deadline = sc_clock_to_system_time(&vr->clock, pts)
-                                 + vr->delay;
-                if (deadline > max_deadline) {
-                    deadline = max_deadline;
+                sc_tick deadline = dpacket.auto_deadline;
+                if (!vr->sparse_frames_asap) {
+                    deadline = sc_clock_to_system_time(&vr->clock, pts)
+                             + vr->delay;
+                    if (deadline > max_deadline) {
+                        deadline = max_deadline;
+                    }
                 }
 
                 timed_out =
@@ -98,14 +95,13 @@ run_buffering(void *data) {
 
 #ifdef SC_BUFFERING_DEBUG
             LOGD("Buffering: %" PRItick ";%" PRItick ";%" PRItick,
-                 pts, dframe.push_date, sc_tick_now());
+                 pts, dpacket.push_date, sc_tick_now());
 #endif
 
             result = sc_frame_source_sinks_push(&vr->frame_source,
                                                 dpacket.frame);
         } else {
             assert(dpacket.type == SC_DELAYED_PACKET_TYPE_SESSION);
-            previous_pts = 0;
             sc_mutex_unlock(&vr->mutex);
             result = sc_frame_source_sinks_push_session(&vr->frame_source,
                                                         &dpacket.session);
@@ -148,6 +144,7 @@ sc_video_regulator_frame_sink_open(struct sc_frame_sink *sink,
     (void) session;
 
     sc_clock_init(&vr->clock);
+    vr->pacing.count = 0;
     sc_vecdeque_init(&vr->queue);
 
     if (!sc_frame_source_sinks_open(&vr->frame_source, ctx, session)) {
@@ -194,33 +191,36 @@ sc_video_regulator_frame_sink_push(struct sc_frame_sink *sink,
     sc_tick recv_date = *(const sc_tick *) frame->opaque_ref->data;
 
     sc_tick pts = SC_TICK_FROM_US(frame->pts);
-    sc_clock_update(&vr->clock, recv_date, pts);
-    sc_cond_signal(&vr->wait_cond);
-
-    if (vr->first_frame_asap && !vr->sparse_frames_asap
-            && vr->clock.range == 1) {
-        sc_mutex_unlock(&vr->mutex);
-        return sc_frame_source_sinks_push(&vr->frame_source, frame);
+    if (!vr->sparse_frames_asap) {
+        sc_clock_update(&vr->clock, recv_date, pts);
+        sc_cond_signal(&vr->wait_cond);
+        if (vr->first_frame_asap && vr->clock.range == 1) {
+            sc_mutex_unlock(&vr->mutex);
+            return sc_frame_source_sinks_push(&vr->frame_source, frame);
+        }
     }
 
-    struct sc_delayed_packet *dpacket =
-        sc_vecdeque_push_uninitialized(&vr->queue);
-    if (!dpacket) {
-        sc_mutex_unlock(&vr->mutex);
-        LOG_OOM();
-        return SC_SINK_KO;
-    }
-
-    bool ok = sc_delayed_packet_init_frame(dpacket, frame);
+    struct sc_delayed_packet dpacket;
+    bool ok = sc_delayed_packet_init_frame(&dpacket, frame);
     if (!ok) {
         sc_mutex_unlock(&vr->mutex);
-        LOG_OOM();
         return SC_SINK_KO;
     }
 
+    dpacket.auto_deadline = vr->sparse_frames_asap
+        ? sc_video_pacing_deadline(&vr->pacing, pts, recv_date, vr->delay)
+        : 0;
+
 #ifdef SC_BUFFERING_DEBUG
-    dpacket->push_date = sc_tick_now();
+    dpacket.push_date = sc_tick_now();
 #endif
+
+    if (!sc_vecdeque_push(&vr->queue, dpacket)) {
+        sc_delayed_packet_destroy(&dpacket);
+        sc_mutex_unlock(&vr->mutex);
+        LOG_OOM();
+        return SC_SINK_KO;
+    }
 
     sc_cond_signal(&vr->queue_cond);
 
@@ -250,6 +250,8 @@ sc_video_regulator_frame_sink_push_session(struct sc_frame_sink *sink,
     }
 
     sc_delayed_packet_init_session(dpacket, session);
+    dpacket->auto_deadline = 0;
+    vr->pacing.count = 0;
 
 #ifdef SC_BUFFERING_DEBUG
     dpacket->push_date = sc_tick_now();

@@ -12,6 +12,7 @@
 #include "util/thread.h"
 #include "util/tick.h"
 #include "util/vecdeque.h"
+#include "video_pacing.h"
 
 //#define SC_BUFFERING_DEBUG // uncomment to debug
 
@@ -25,6 +26,7 @@ enum sc_delayed_packet_type {
 
 struct sc_delayed_packet {
     enum sc_delayed_packet_type type;
+    sc_tick auto_deadline;
     union {
         AVFrame *frame;
         struct sc_stream_session session;
@@ -52,6 +54,7 @@ struct sc_video_regulator {
     sc_cond backpressure_cond;
 
     struct sc_clock clock;
+    struct sc_video_pacing pacing;
     struct sc_delayed_packet_queue queue;
     bool stopped;
 };
