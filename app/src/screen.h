@@ -73,6 +73,7 @@ struct sc_screen {
         int16_t y;
         uint16_t width;
         uint16_t height;
+        struct sc_size placed_size;
         bool fullscreen;
         bool start_fps_counter;
     } req;
@@ -162,6 +163,8 @@ struct sc_screen_params {
     int16_t window_y; // accepts SC_WINDOW_POSITION_UNDEFINED
     uint16_t window_width;
     uint16_t window_height;
+    SDL_Window *placed_window; // optional, transferred on successful init
+    struct sc_size placed_window_size;
 
     uint32_t background_color;
 
@@ -178,7 +181,11 @@ struct sc_screen_params {
     bool start_fps_counter;
 };
 
-// initialize screen, create window, renderer and texture (window is hidden)
+// Create a hidden window with the requested styles.
+SDL_Window *
+sc_screen_create_window(const struct sc_screen_params *params);
+
+// Initialize screen, renderer and texture, creating a window if needed.
 bool
 sc_screen_init(struct sc_screen *screen, const struct sc_screen_params *params);
 

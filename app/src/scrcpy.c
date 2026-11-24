@@ -31,6 +31,7 @@
 #include "server.h"
 #ifdef _WIN32
 # include "sys/win/live_recording.h"
+# include "sys/win/window_placement.h"
 #endif
 #include "uhid/gamepad_uhid.h"
 #include "uhid/keyboard_uhid.h"
@@ -399,6 +400,49 @@ sc_init_video_hwdec(struct sc_hwdec *hwdec, enum sc_hwdec_mode mode,
     return sc_hwdec_init(hwdec, AV_HWDEVICE_TYPE_NONE, NULL, false, NULL);
 }
 
+#ifdef _WIN32
+static char *
+sc_prepare_placed_display(const struct scrcpy_options *options,
+                          struct sc_screen_params *screen_params,
+                          const struct sc_window_placement *placement) {
+    SDL_Window *window = sc_screen_create_window(screen_params);
+    if (!window) {
+        LOGW("Could not create the restored window: %s", SDL_GetError());
+        return NULL;
+    }
+
+    struct sc_size size;
+    if (!sc_window_placement_apply(window, placement, options->fullscreen,
+                                   &size)) {
+        LOGW("Could not restore window placement");
+        SDL_DestroyWindow(window);
+        return NULL;
+    }
+
+    // --new-display takes dimensions before flex scaling. Keep the configured
+    // density and convert the client dimensions to the display's orientation.
+    bool swap = sc_orientation_is_swap(options->display_orientation)
+             != sc_orientation_is_swap(options->capture_orientation);
+    char dimensions[sizeof("65535x65535")];
+    snprintf(dimensions, sizeof(dimensions), "%" PRIu16 "x%" PRIu16,
+             swap ? size.height : size.width,
+             swap ? size.width : size.height);
+    const char *density = strchr(options->new_display, '/');
+    char *display = sc_str_concat(dimensions, density ? density : "");
+    if (!display) {
+        LOG_OOM();
+        SDL_DestroyWindow(window);
+        return NULL;
+    }
+
+    screen_params->placed_window = window;
+    screen_params->placed_window_size = size;
+    LOGD("Restored window client size: %" PRIu16 "x%" PRIu16 " (new display: %s)",
+         size.width, size.height, display);
+    return display;
+}
+#endif
+
 enum scrcpy_exit_code
 scrcpy(struct scrcpy_options *options) {
     static struct scrcpy scrcpy;
@@ -418,6 +462,7 @@ scrcpy(struct scrcpy_options *options) {
 
     enum scrcpy_exit_code ret = SCRCPY_EXIT_FAILURE;
 
+    bool server_initialized = false;
     bool server_started = false;
     bool file_pusher_initialized = false;
     bool recorder_initialized = false;
@@ -452,6 +497,71 @@ scrcpy(struct scrcpy_options *options) {
 
     struct sc_acksync *acksync = NULL;
 
+#ifdef _WIN32
+    sdl_configure_ctrl_c_windows();
+#endif
+
+    // Set hints before starting the server thread to avoid race conditions in
+    // SDL
+    sc_sdl_set_hints(options->render_driver, options->disable_screensaver);
+
+    if (!options->list && (options->window
+            || (options->control && options->clipboard_autosync))) {
+        // Initialize the video subsystem even if --no-video or
+        // --no-video-playback is passed so that clipboard synchronization
+        // still works.
+        // <https://github.com/Genymobile/scrcpy/issues/4418>
+        if (!SDL_Init(SDL_INIT_VIDEO)) {
+            // If it fails, it is an error only if video playback is enabled
+            if (options->video_playback) {
+                LOGE("Could not initialize SDL video: %s", SDL_GetError());
+                return SCRCPY_EXIT_FAILURE;
+            } else {
+                LOGW("Could not initialize SDL video: %s", SDL_GetError());
+            }
+        }
+    }
+
+    struct sc_screen_params screen_params = {
+        .video = options->video_playback,
+        .camera = options->video_source == SC_VIDEO_SOURCE_CAMERA,
+        .flex_display = options->flex_display,
+        .flex_display_scale = options->flex_display_scale,
+        .flex_display_integer_scaling = options->flex_display_integer_scaling,
+        .keymap = options->keymap,
+        .pause_video_when_minimized = options->pause_video_when_minimized,
+        .freeze_app_when_minimized = options->freeze_app_when_minimized,
+        .mouse_bindings = options->mouse_bindings,
+        .legacy_paste = options->legacy_paste,
+        .clipboard_autosync = options->clipboard_autosync,
+        .shortcut_mods = options->shortcut_mods,
+        .window_title = options->window_title ? options->window_title : "scrcpy",
+        .always_on_top = options->always_on_top,
+        .window_x = options->window_x,
+        .window_y = options->window_y,
+        .window_width = options->window_width,
+        .window_height = options->window_height,
+        .background_color = options->background_color,
+        .window_aspect_ratio_lock = options->window_aspect_ratio_lock,
+        .window_borderless = options->window_borderless,
+        .render_fit = options->render_fit,
+        .orientation = options->display_orientation,
+        .mipmaps = options->mipmaps,
+        .hwdec_mode = options->hwdec_mode,
+        .fullscreen = options->fullscreen,
+        .start_fps_counter = options->start_fps_counter,
+    };
+
+    char *placed_display = NULL;
+#ifdef _WIN32
+    struct sc_window_placement placement;
+    if (!options->list && options->window && options->video_playback
+            && options->flex_display && sc_window_placement_read(&placement)) {
+        placed_display = sc_prepare_placed_display(options, &screen_params,
+                                                   &placement);
+    }
+#endif
+
     uint32_t scid = scrcpy_generate_scid();
 
     struct sc_server_params params = {
@@ -480,7 +590,7 @@ scrcpy(struct scrcpy_options *options) {
         .capture_orientation_lock = options->capture_orientation_lock,
         .control = options->control,
         .display_id = options->display_id,
-        .new_display = options->new_display,
+        .new_display = placed_display ? placed_display : options->new_display,
         .vd_refresh_rate = options->vd_refresh_rate,
         .flex_display_scale = options->flex_display_scale,
         .flex_display_integer_scaling = options->flex_display_integer_scaling,
@@ -529,16 +639,9 @@ scrcpy(struct scrcpy_options *options) {
         .on_disconnected = sc_server_on_disconnected,
     };
     if (!sc_server_init(&s->server, &params, &cbs, NULL)) {
-        return SCRCPY_EXIT_FAILURE;
+        goto end;
     }
-
-#ifdef _WIN32
-    sdl_configure_ctrl_c_windows();
-#endif
-
-    // Set hints before starting the server thread to avoid race conditions in
-    // SDL
-    sc_sdl_set_hints(options->render_driver, options->disable_screensaver);
+    server_initialized = true;
 
     if (!sc_server_start(&s->server)) {
         goto end;
@@ -555,23 +658,6 @@ scrcpy(struct scrcpy_options *options) {
     // playback implies capture
     assert(!options->video_playback || options->video);
     assert(!options->audio_playback || options->audio);
-
-    if (options->window ||
-            (options->control && options->clipboard_autosync)) {
-        // Initialize the video subsystem even if --no-video or
-        // --no-video-playback is passed so that clipboard synchronization
-        // still works.
-        // <https://github.com/Genymobile/scrcpy/issues/4418>
-        if (!SDL_Init(SDL_INIT_VIDEO)) {
-            // If it fails, it is an error only if video playback is enabled
-            if (options->video_playback) {
-                LOGE("Could not initialize SDL video: %s", SDL_GetError());
-                goto end;
-            } else {
-                LOGW("Could not initialize SDL video: %s", SDL_GetError());
-            }
-        }
-    }
 
     if (options->audio_playback) {
         if (!SDL_Init(SDL_INIT_AUDIO)) {
@@ -849,46 +935,22 @@ aoa_complete:
     assert(options->control == !!controller);
 
     if (options->window) {
-        struct sc_screen_params screen_params = {
-            .video = options->video_playback,
-            .camera = options->video_source == SC_VIDEO_SOURCE_CAMERA,
-            .flex_display = options->flex_display,
-            .flex_display_scale = options->flex_display_scale,
-            .flex_display_integer_scaling = options->flex_display_integer_scaling,
-            .keymap = options->keymap,
-            .keymap_dpi = sc_keymap_parse_display_dpi(options->new_display),
-            .pause_video_when_minimized = options->pause_video_when_minimized,
-            .freeze_app_when_minimized = options->freeze_app_when_minimized,
-            .controller = controller,
-            .fp = fp,
-            .kp = kp,
-            .mp = mp,
-            .gp = gp,
-            .mouse_bindings = options->mouse_bindings,
-            .legacy_paste = options->legacy_paste,
-            .clipboard_autosync = options->clipboard_autosync,
-            .shortcut_mods = options->shortcut_mods,
-            .window_title = window_title,
-            .always_on_top = options->always_on_top,
-            .window_x = options->window_x,
-            .window_y = options->window_y,
-            .window_width = options->window_width,
-            .window_height = options->window_height,
-            .background_color = options->background_color,
-            .window_aspect_ratio_lock = options->window_aspect_ratio_lock,
-            .window_borderless = options->window_borderless,
-            .render_fit = options->render_fit,
-            .orientation = options->display_orientation,
-            .mipmaps = options->mipmaps,
-            .hwdec_mode = options->hwdec_mode,
-            .fullscreen = options->fullscreen,
-            .start_fps_counter = options->start_fps_counter,
-        };
+        screen_params.keymap_dpi = sc_keymap_parse_display_dpi(params.new_display);
+        screen_params.controller = controller;
+        screen_params.fp = fp;
+        screen_params.kp = kp;
+        screen_params.mp = mp;
+        screen_params.gp = gp;
+        screen_params.window_title = window_title;
+        if (screen_params.placed_window && !options->window_title) {
+            SDL_SetWindowTitle(screen_params.placed_window, window_title);
+        }
 
         if (!sc_screen_init(&s->screen, &screen_params)) {
             goto end;
         }
         screen_initialized = true;
+        screen_params.placed_window = NULL;
     }
 
     bool needs_video_decoder = options->video_playback;
@@ -1280,7 +1342,13 @@ end:
         sc_server_join(&s->server);
     }
 
-    sc_server_destroy(&s->server);
+    if (server_initialized) {
+        sc_server_destroy(&s->server);
+    }
+    if (screen_params.placed_window) {
+        SDL_DestroyWindow(screen_params.placed_window);
+    }
+    free(placed_display);
 
     return ret;
 }

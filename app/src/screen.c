@@ -15,6 +15,7 @@
 #include "util/sdl.h"
 #ifdef _WIN32
 # include "sys/win/session_caption.h"
+# include "sys/win/window_placement.h"
 #endif
 
 #define DISPLAY_MARGINS 96
@@ -628,6 +629,44 @@ sc_screen_frame_sink_push_session(struct sc_frame_sink *sink,
     return SC_SINK_OK;
 }
 
+SDL_Window *
+sc_screen_create_window(const struct sc_screen_params *params) {
+    // Always create the window hidden to prevent blinking during initialization
+    uint32_t window_flags = SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN;
+    if (params->always_on_top) {
+        window_flags |= SDL_WINDOW_ALWAYS_ON_TOP;
+    }
+    if (params->window_borderless) {
+        window_flags |= SDL_WINDOW_BORDERLESS;
+    }
+    if (params->video) {
+        // The window will be shown on first frame
+        window_flags |= SDL_WINDOW_RESIZABLE;
+    }
+
+    const char *title = params->window_title;
+    assert(title);
+
+    int x = SDL_WINDOWPOS_UNDEFINED;
+    int y = SDL_WINDOWPOS_UNDEFINED;
+    int width = 256;
+    int height = 256;
+    if (params->window_x != SC_WINDOW_POSITION_UNDEFINED) {
+        x = params->window_x;
+    }
+    if (params->window_y != SC_WINDOW_POSITION_UNDEFINED) {
+        y = params->window_y;
+    }
+    if (params->window_width) {
+        width = params->window_width;
+    }
+    if (params->window_height) {
+        height = params->window_height;
+    }
+
+    return sc_sdl_create_window(title, x, y, width, height, window_flags);
+}
+
 bool
 sc_screen_init(struct sc_screen *screen,
                const struct sc_screen_params *params) {
@@ -662,6 +701,7 @@ sc_screen_init(struct sc_screen *screen,
     screen->req.y = params->window_y;
     screen->req.width = params->window_width;
     screen->req.height = params->window_height;
+    screen->req.placed_size = params->placed_window_size;
     screen->req.fullscreen = params->fullscreen;
     screen->req.start_fps_counter = params->start_fps_counter;
 
@@ -693,45 +733,13 @@ sc_screen_init(struct sc_screen *screen,
         }
     }
 
-    // Always create the window hidden to prevent blinking during initialization
-    uint32_t window_flags = SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN;
-    if (params->always_on_top) {
-        window_flags |= SDL_WINDOW_ALWAYS_ON_TOP;
-    }
-    if (params->window_borderless) {
-        window_flags |= SDL_WINDOW_BORDERLESS;
-    }
-    if (params->video) {
-        // The window will be shown on first frame
-        window_flags |= SDL_WINDOW_RESIZABLE;
-    }
-
-    const char *title = params->window_title;
-    assert(title);
-
-    int x = SDL_WINDOWPOS_UNDEFINED;
-    int y = SDL_WINDOWPOS_UNDEFINED;
-    int width = 256;
-    int height = 256;
-    if (params->window_x != SC_WINDOW_POSITION_UNDEFINED) {
-        x = params->window_x;
-    }
-    if (params->window_y != SC_WINDOW_POSITION_UNDEFINED) {
-        y = params->window_y;
-    }
-    if (params->window_width) {
-        width = params->window_width;
-    }
-    if (params->window_height) {
-        height = params->window_height;
-    }
-
-    // The window will be positioned and sized on first video frame
-    screen->window =
-        sc_sdl_create_window(title, x, y, width, height, window_flags);
+    screen->window = params->placed_window;
     if (!screen->window) {
-        LOGE("Could not create window: %s", SDL_GetError());
-        goto error_destroy_fps_counter;
+        screen->window = sc_screen_create_window(params);
+        if (!screen->window) {
+            LOGE("Could not create window: %s", SDL_GetError());
+            goto error_destroy_fps_counter;
+        }
     }
 
     screen->renderer = SDL_CreateRenderer(screen->window, NULL);
@@ -889,7 +897,9 @@ error_destroy_renderer:
 #endif
     SDL_DestroyRenderer(screen->renderer);
 error_destroy_window:
-    SDL_DestroyWindow(screen->window);
+    if (!params->placed_window) {
+        SDL_DestroyWindow(screen->window);
+    }
 error_destroy_fps_counter:
     sc_fps_counter_destroy(&screen->fps_counter);
 error_destroy_frame_buffer:
@@ -902,6 +912,27 @@ error_destroy_mutex:
 
 static void
 sc_screen_show_initial_window(struct sc_screen *screen) {
+#ifdef _WIN32
+    if (screen->req.placed_size.width) {
+        assert(screen->flex_display);
+        if (screen->req.start_fps_counter) {
+            sc_fps_counter_start(&screen->fps_counter);
+        }
+
+        // Opening the restored window must not feed encoder alignment or
+        // integer scaling rounding back into the Android display size.
+        sc_window_placement_show(screen->window);
+        screen->window_shown = true;
+        struct sc_size size = sc_sdl_get_window_size(screen->window);
+        if (size.width != screen->req.placed_size.width
+                || size.height != screen->req.placed_size.height) {
+            sc_screen_request_resize_display(screen, size.width, size.height);
+        }
+        sc_screen_update_content_rect(screen);
+        return;
+    }
+#endif
+
     int x = screen->req.x != SC_WINDOW_POSITION_UNDEFINED
           ? screen->req.x : (int) SDL_WINDOWPOS_CENTERED;
     int y = screen->req.y != SC_WINDOW_POSITION_UNDEFINED

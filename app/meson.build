@@ -91,6 +91,7 @@ if host_machine.system() == 'windows'
         'src/sys/win/live_recording.c',
         'src/sys/win/process.c',
         'src/sys/win/session_caption.c',
+        'src/sys/win/window_placement.c',
         windows.compile_resources('scrcpy-windows.rc'),
     ]
     feature_test_macros += [
