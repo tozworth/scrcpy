@@ -836,8 +836,9 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
 
         // Mirroring a new virtual display id (using --new-display-id feature)
         try {
-            // Wait for at most 1 second until a virtual display id is known
-            DisplayData data = waitDisplayData(1000);
+            // The client can request app launch while the encoder and display
+            // are still starting.
+            DisplayData data = waitDisplayData(3000);
             if (data != null) {
                 return data.virtualDisplayId;
             }
@@ -850,18 +851,16 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
     }
 
     private DisplayData waitDisplayData(long timeoutMillis) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMillis;
+        long deadline = SystemClock.uptimeMillis() + timeoutMillis;
 
         synchronized (displayDataAvailable) {
             DisplayData data = displayData.get();
             while (data == null) {
-                long timeout = deadline - System.currentTimeMillis();
-                if (timeout < 0) {
+                long timeout = deadline - SystemClock.uptimeMillis();
+                if (timeout <= 0) {
                     return null;
                 }
-                if (timeout > 0) {
-                    displayDataAvailable.wait(timeout);
-                }
+                displayDataAvailable.wait(timeout);
                 data = displayData.get();
             }
 

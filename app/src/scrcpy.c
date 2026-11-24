@@ -443,6 +443,25 @@ sc_prepare_placed_display(const struct scrcpy_options *options,
 }
 #endif
 
+static bool
+request_start_app(struct sc_controller *controller, const char *app) {
+    char *name = strdup(app);
+    if (!name) {
+        LOG_OOM();
+        return false;
+    }
+
+    struct sc_control_msg msg = {
+        .type = SC_CONTROL_MSG_TYPE_START_APP,
+        .start_app.name = name,
+    };
+    if (!sc_controller_push_msg(controller, &msg)) {
+        LOGW("Could not request start app '%s'", name);
+        free(name);
+    }
+    return true;
+}
+
 enum scrcpy_exit_code
 scrcpy(struct scrcpy_options *options) {
     static struct scrcpy scrcpy;
@@ -772,6 +791,9 @@ scrcpy(struct scrcpy_options *options) {
     struct sc_key_processor *kp = NULL;
     struct sc_mouse_processor *mp = NULL;
     struct sc_gamepad_processor *gp = NULL;
+    bool start_app_early = options->start_app && options->start_app[0] != '+'
+                        && options->new_display && options->vd_destroy_content
+                        && !options->turn_screen_off;
 
     if (options->control) {
         static const struct sc_controller_callbacks controller_cbs = {
@@ -929,6 +951,13 @@ aoa_complete:
             goto end;
         }
         controller_started = true;
+
+        // Let Android resolve and open the app while Windows initializes
+        // playback. Screen-off launches still send the power command first.
+        if (start_app_early
+                && !request_start_app(controller, options->start_app)) {
+            goto end;
+        }
     }
 
     // There is a controller if and only if control is enabled
@@ -1144,23 +1173,9 @@ aoa_complete:
         init_sdl_gamepads();
     }
 
-    if (options->control && options->start_app) {
-        assert(controller);
-
-        char *name = strdup(options->start_app);
-        if (!name) {
-            LOG_OOM();
-            goto end;
-        }
-
-        struct sc_control_msg msg;
-        msg.type = SC_CONTROL_MSG_TYPE_START_APP;
-        msg.start_app.name = name;
-
-        if (!sc_controller_push_msg(controller, &msg)) {
-            LOGW("Could not request start app '%s'", name);
-            free(name);
-        }
+    if (controller && options->start_app && !start_app_early
+            && !request_start_app(controller, options->start_app)) {
+        goto end;
     }
 
     ret = event_loop(s, options->window);
