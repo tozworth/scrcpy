@@ -4,6 +4,13 @@
 #include <stdlib.h>
 #include <libavcodec/avcodec.h>
 
+#ifdef _WIN32
+# include <windows.h>
+# ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#  define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+# endif
+#endif
+
 #include "util/log.h"
 
 /** Downcast frame_sink to sc_video_regulator */
@@ -41,6 +48,41 @@ sc_delayed_packet_destroy(struct sc_delayed_packet *dpacket) {
         av_frame_unref(dpacket->frame);
         av_frame_free(&dpacket->frame);
     }
+}
+
+static bool
+sc_video_regulator_timedwait(struct sc_video_regulator *vr, sc_tick deadline) {
+#ifdef _WIN32
+    if (vr->pacing_timer) {
+        // Automatic deadlines are immutable, so only stop can interrupt this
+        // wait. Fixed buffering still uses wait_cond for clock updates.
+        HANDLE handles[] = {vr->pacing_stop_event, vr->pacing_timer};
+        for (;;) {
+            sc_tick remaining = deadline - sc_tick_now();
+            if (remaining <= 0) {
+                return false;
+            }
+
+            LARGE_INTEGER due_time;
+            due_time.QuadPart = -10 * remaining; // relative, in 100 ns units
+            if (!SetWaitableTimer(vr->pacing_timer, &due_time, 0, NULL,
+                                  NULL, FALSE)) {
+                break;
+            }
+
+            sc_mutex_unlock(&vr->mutex);
+            DWORD result = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+            sc_mutex_lock(&vr->mutex);
+            if (vr->stopped) {
+                return true;
+            }
+            if (result != WAIT_OBJECT_0 + 1) {
+                break;
+            }
+        }
+    }
+#endif
+    return sc_cond_timedwait(&vr->wait_cond, &vr->mutex, deadline);
 }
 
 static int
@@ -81,8 +123,7 @@ run_buffering(void *data) {
                     }
                 }
 
-                timed_out =
-                    !sc_cond_timedwait(&vr->wait_cond, &vr->mutex, deadline);
+                timed_out = !sc_video_regulator_timedwait(vr, deadline);
             }
 
             bool stopped = vr->stopped;
@@ -315,6 +356,24 @@ sc_video_regulator_init(struct sc_video_regulator *vr, sc_tick delay,
     vr->backpressure_threshold = backpressure_threshold;
     vr->stopped = false;
 
+#ifdef _WIN32
+    vr->pacing_timer = NULL;
+    vr->pacing_stop_event = NULL;
+    if (sparse_frames_asap) {
+        vr->pacing_timer =
+            CreateWaitableTimerExW(NULL, NULL,
+                                   CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                   TIMER_MODIFY_STATE | SYNCHRONIZE);
+        if (vr->pacing_timer) {
+            vr->pacing_stop_event = CreateEventW(NULL, TRUE, FALSE, NULL);
+            if (!vr->pacing_stop_event) {
+                CloseHandle(vr->pacing_timer);
+                vr->pacing_timer = NULL;
+            }
+        }
+    }
+#endif
+
     sc_frame_source_init(&vr->frame_source);
 
     static const struct sc_frame_sink_ops ops = {
@@ -343,6 +402,11 @@ void
 sc_video_regulator_stop(struct sc_video_regulator *vr) {
     sc_mutex_lock(&vr->mutex);
     vr->stopped = true;
+#ifdef _WIN32
+    if (vr->pacing_stop_event) {
+        SetEvent(vr->pacing_stop_event);
+    }
+#endif
     sc_cond_signal(&vr->queue_cond);
     sc_cond_signal(&vr->wait_cond);
     sc_cond_signal(&vr->backpressure_cond);
@@ -351,6 +415,12 @@ sc_video_regulator_stop(struct sc_video_regulator *vr) {
 
 void
 sc_video_regulator_destroy(struct sc_video_regulator *vr) {
+#ifdef _WIN32
+    if (vr->pacing_timer) {
+        CloseHandle(vr->pacing_timer);
+        CloseHandle(vr->pacing_stop_event);
+    }
+#endif
     sc_cond_destroy(&vr->backpressure_cond);
     sc_cond_destroy(&vr->wait_cond);
     sc_cond_destroy(&vr->queue_cond);

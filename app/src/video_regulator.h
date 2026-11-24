@@ -52,6 +52,10 @@ struct sc_video_regulator {
     sc_cond queue_cond;
     sc_cond wait_cond;
     sc_cond backpressure_cond;
+#ifdef _WIN32
+    void *pacing_timer;
+    void *pacing_stop_event;
+#endif
 
     struct sc_clock clock;
     struct sc_video_pacing pacing;
